@@ -1,3 +1,4 @@
+from functools import total_ordering
 import torch
 import torch.nn as nn
 import numpy as np
@@ -147,6 +148,9 @@ class RNN(nn.Module):
         :return: if return_dynamics=False, output tensor of shape (batch_size, #timesteps, output_dimension)
                  if return_dynamics=True, (output tensor, trajectories tensor of shape (batch_size, #timesteps, #hidden_units))
         """
+
+
+
         batch_size = input.shape[0]
         seq_len = input.shape[1]
         if h_init is None:
@@ -198,7 +202,7 @@ class RNN(nn.Module):
             return output, trajectories
 
     
-    def fwd_mode(self,x, loss_fn , mage = False, h_init=None):
+    def fwd_mode(self,x, loss_fn , mage = False, h_init=None, save_V_steps_param = 1, step_weight = None):
 
         batch_size = x.shape[0]
         seq_len = x.shape[1]
@@ -206,7 +210,23 @@ class RNN(nn.Module):
 
         device =x.device
         dtype = x.dtype
+
+        if save_V_steps_param == -1:
+            save_V_steps = [0]
+        elif not isinstance(save_V_steps_param, list):
+            save_V_steps = list(range(0,seq_len,save_V_steps_param))
+            if not 0 in save_V_steps:
+                save_V_steps = [0] + save_V_steps
+
+        if step_weight is None:
+            step_weight = torch.ones([seq_len], device = device)/seq_len
+        elif step_weight == "linear":
+            step_weight = torch.arange(0,seq_len, device = device)
+            step_weight = step_weight/step_weight.sum()
+
         V = {}
+
+
 
         if h_init is None:
             h = self.h0
@@ -232,12 +252,11 @@ class RNN(nn.Module):
         Wo = self.wo
 
         if mage:
-            Vrec = None
-            Vi = None
-            Vbrec = None
-            Vo = None
-
-            V= {}
+            Vrec_tot = torch.zeros([batch_size,Wrec.size(0),Wrec.size(1)], device = device)
+            Vi_tot = torch.zeros([batch_size,Wi.size(0),Wi.size(1)], device = device)
+            Vbrec_tot = torch.zeros_like(Brec)
+            Vo_tot = torch.zeros([batch_size,Wo.size(0),Wo.size(1)], device = device)
+            last_saved = -1
         else:
             Vrec = torch.randn_like(Wrec)
             Vi = torch.randn_like(Wi)
@@ -245,10 +264,30 @@ class RNN(nn.Module):
             Vo = torch.randn_like(Wo)
 
     
+        
+
         for i in range(seq_len):
         
             if mage:
+
                 with torch.no_grad():
+
+
+                    if i in save_V_steps:
+                        ##import pdb; pdb.set_trace()
+
+                        if last_saved >= 0:
+                            steps_used = step_weight[last_saved:i].sum()
+                            Vrec_tot += Vrec*steps_used
+                            Vi_tot += Vi*steps_used
+                            Vbrec_tot += Vbrec*steps_used
+                            Vo_tot += Vo*steps_used
+                        Vrec = None
+                        Vi = None
+                        Vbrec = None
+                        Vo = None
+                        last_saved = i
+
                     a_i = x[:, i, :].matmul(Wi)+ Brec    ##   [B,1] x [1,M]  -> B X M
 
                     if Vi is None:
@@ -256,7 +295,7 @@ class RNN(nn.Module):
                         Vbrec = vn.clone().squeeze().expand(Brec.shape)   ## [M]
                         z = x[:, i, :]/(x[:, i, :].norm(dim=1,keepdim = True)+ eps)  ## B X 1
                         Vi = torch.matmul(vn, z.unsqueeze(1)).permute(0,2,1)##   M X 1    mm    B X 1 X 1  -> B X 1 X M
-                    
+
                     ai_grad = torch.matmul(x[:, i, :].unsqueeze(1) , Vi ).squeeze(1) + Vbrec   ## B x 1 x 1   mm B x 1 X M -> B x M
 
                 if not h_grad is None:
@@ -313,6 +352,7 @@ class RNN(nn.Module):
                 ##V[i] = (Vrec, Vi, Vbrec, Vo)
                 output[:, i, :] = out_i
                 output_grad[:, i, :] = out_i_grad
+                    
 
 
 
@@ -363,6 +403,17 @@ class RNN(nn.Module):
 
         ##import pdb; pdb.set_trace()
 
+
+        if mage:
+            ##import pdb; pdb.set_trace()
+            steps_used = step_weight[last_saved:seq_len].sum()
+            Vrec_tot += Vrec*steps_used
+            Vi_tot += Vi*steps_used
+            Vbrec_tot += Vbrec*steps_used
+            Vo_tot += Vo*steps_used
+
+
+
         out =torch.autograd.Variable(output, requires_grad = True)
         out.grad = torch.zeros_like(out)
         L = loss_fn(out)
@@ -390,10 +441,10 @@ class RNN(nn.Module):
                 Wo.grad = torch.zeros_like(Wo)
 
             if mage:
-                Wrec.grad +=  torch.matmul(dFg.permute(1,0), Vrec.view(Vrec.shape[0],-1)).view(Vrec.shape[1],Vrec.shape[2])
-                Wi.grad +=    torch.matmul(dFg.permute(1,0), Vi.view(Vi.shape[0],-1)).view(Vi.shape[1],Vi.shape[2])
-                Brec.grad +=   dFg.sum() * Vbrec
-                Wo.grad +=   torch.matmul(dFg.permute(1,0), Vo.view(Vo.shape[0],-1)).view(Vo.shape[1],Vo.shape[2])
+                Wrec.grad +=  torch.matmul(dFg.permute(1,0), Vrec_tot.view(Vrec.shape[0],-1)).view(Vrec.shape[1],Vrec.shape[2])
+                Wi.grad +=    torch.matmul(dFg.permute(1,0), Vi_tot.view(Vi.shape[0],-1)).view(Vi.shape[1],Vi.shape[2])
+                Brec.grad +=   dFg.sum() * Vbrec_tot
+                Wo.grad +=   torch.matmul(dFg.permute(1,0), Vo_tot.view(Vo.shape[0],-1)).view(Vo.shape[1],Vo.shape[2])
             else:
                 Wrec.grad +=   dFg* Vrec
                 Wi.grad +=   dFg* Vi
@@ -589,7 +640,7 @@ def loss_mse(output, target, mask):
     return loss
 
 def train(net, task, n_epochs, batch_size=32, learning_rate=1e-2, clip_gradient=None, cuda=False, rec_step=1, 
-          optimizer='sgd', h_init=None, verbose=True, fwd_mode = False, mage = False, n_directions = 1):
+          optimizer='sgd', h_init=None, verbose=True, fwd_mode = False, mage = False, n_directions = 1, warmup =-1, save_V_steps = 1, step_weight = None):
     """
     Train a network
     :param net: nn.Module
@@ -614,10 +665,11 @@ def train(net, task, n_epochs, batch_size=32, learning_rate=1e-2, clip_gradient=
     net.to(device=device)
     
     # Optimizer
+
     if optimizer == 'sgd':
-        optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate)
+        optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate if warmup < 0 else 0.0008437500000000001)
     elif optimizer == 'adam':
-        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
+        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate if warmup < 0 else 0.0008437500000000001)
     else:
         raise Exception("Optimizer not known.")
     
@@ -652,8 +704,14 @@ def train(net, task, n_epochs, batch_size=32, learning_rate=1e-2, clip_gradient=
         print("Training...")
         
     pbar = tqdm(range(n_epochs))
-        
+    ##import pdb; pdb.set_trace()
+
     for i in pbar :
+
+        if i == warmup:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = learning_rate
+
         # Save weights (before update)
         if i % rec_step == 0:
             k = i // rec_step
@@ -682,10 +740,14 @@ def train(net, task, n_epochs, batch_size=32, learning_rate=1e-2, clip_gradient=
 
         output = net(input, h_init=h_init)
         loss = loss_mse(output, target, mask)
-        if fwd_mode: 
+
+
+        ##import pdb; pdb.set_trace()
+        if fwd_mode and i >= warmup: 
             for _ in range(n_directions):
-                output = net.fwd_mode(x = input, loss_fn= lambda x: loss_mse(x, target, mask)/n_directions, mage = mage, h_init=h_init)
+                output = net.fwd_mode(x = input, loss_fn= lambda x: loss_mse(x, target, mask)/n_directions, mage = mage, h_init=h_init, save_V_steps_param = save_V_steps, step_weight = step_weight )
         else:
+            
             loss.backward()
 
         pbar.set_description("loss: %.2e" % loss)
