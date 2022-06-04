@@ -52,6 +52,13 @@ def create_new_Vs(rnn, j, device, epsilon):
     _vb_hg = torch.randn(b_hg.shape, device=device) * epsilon
     _vb_ho = torch.randn(b_ho.shape, device=device) * epsilon
 
+    _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
+    _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
+    _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
+    _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
+
+    return _vw_i, _vw_h, _vb_i, _vb_h
+
 
 def create_new_Vs_mage(x_t, h_part, rnn, j, device, epsilon):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
@@ -203,6 +210,8 @@ class RNN(nn.Module):
         grad = 0
         h_stack = []
         c_stack = []
+        relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))]
+        relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))[-3:]]
         with torch.no_grad():
             for j in range(self.rnn.num_layers):
                 h, c_t_1 = hx[j]
@@ -325,22 +334,23 @@ class RNN(nn.Module):
                     h_grad_list.append(dh_t_dW)
                     c_t_1 = c_t
 
-                    vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
-                    vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
-                    vw_if += combine_batch(_vw_if, torch.zeros_like(vw_if))
-                    vw_hf += combine_batch(_vw_hf, torch.zeros_like(vw_hf))
-                    vw_ig += combine_batch(_vw_ig, torch.zeros_like(vw_ig))
-                    vw_hg += combine_batch(_vw_hg, torch.zeros_like(vw_hg))
-                    vw_io += combine_batch(_vw_io, torch.zeros_like(vw_io))
-                    vw_ho += combine_batch(_vw_ho, torch.zeros_like(vw_ho))
-                    vb_ii += _vb_ii
-                    vb_hi += _vb_hi
-                    vb_if += _vb_if
-                    vb_hf += _vb_hf
-                    vb_ig += _vb_ig
-                    vb_hg += _vb_hg
-                    vb_io += _vb_io
-                    vb_ho += _vb_ho
+                    if (j, seq) in relevant_Vs:
+                        vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
+                        vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
+                        vw_if += combine_batch(_vw_if, torch.zeros_like(vw_if))
+                        vw_hf += combine_batch(_vw_hf, torch.zeros_like(vw_hf))
+                        vw_ig += combine_batch(_vw_ig, torch.zeros_like(vw_ig))
+                        vw_hg += combine_batch(_vw_hg, torch.zeros_like(vw_hg))
+                        vw_io += combine_batch(_vw_io, torch.zeros_like(vw_io))
+                        vw_ho += combine_batch(_vw_ho, torch.zeros_like(vw_ho))
+                        vb_ii += _vb_ii
+                        vb_hi += _vb_hi
+                        vb_if += _vb_if
+                        vb_hf += _vb_hf
+                        vb_ig += _vb_ig
+                        vb_hg += _vb_hg
+                        vb_io += _vb_io
+                        vb_ho += _vb_ho
 
 
                 # todo: add dropout as in nn.LSTM
