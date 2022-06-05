@@ -28,7 +28,6 @@ def apply_fwd_grad_batch(dFg, vw):
     else:
         return dFg.sum() * vw
 
-
 def create_new_Vs(rnn, j, device, epsilon):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
     W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
@@ -183,10 +182,11 @@ class RNN(nn.Module):
 
         return decoded
 
-    def fwd_mode(self, batch_text, y, loss, mage=True):
+    def batch_text_to_input(self, batch_text):
         text, text_lengths = batch_text
         # text = [sentence len, batch size]
-        embedded = self.encoder(text)
+        with torch.no_grad():
+            embedded = self.encoder(text)
         # embedded = [sent len, batch size, emb dim]
 
         # Pack sequence
@@ -203,15 +203,18 @@ class RNN(nn.Module):
         hx = (zeros, zeros)
         self.rnn.check_forward_args(input, hx, batch_sizes)
 
-        x = torch.split(input, tuple(batch_sizes))
-        device = input.device
+        return torch.split(input, tuple(batch_sizes)), hx, unsorted_indices
+
+    def fwd_mode(self, batch_text, y, loss, mage=True, grad_div=1):
+        x, hx, unsorted_indices = self.batch_text_to_input(batch_text)
+        device = x[0].device
         epsilon = 1
         V = {}
         grad = 0
         h_stack = []
         c_stack = []
         relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))]
-        relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))[-3:]]
+        # relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))[-3:]]
         with torch.no_grad():
             for j in range(self.rnn.num_layers):
                 h, c_t_1 = hx[j]
@@ -366,26 +369,26 @@ class RNN(nn.Module):
 
                 grad = grad + accumulated_grad
 
-        packed_output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.zeros_like(c_stack[0]))
-
-        self.rnn.permute_hidden(hidden, unsorted_indices)
-
-        hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
-            (-1, self.hidden_dim * self.n_directions))
-
-        # # Dropout
-        # hidden = self.drop(hidden)
-
-        if mage:
-            pw = torch.randn((self.decoder.weight.shape[0], 1), device=device, dtype=torch.float32) * epsilon
-            vw = torch.matmul(pw, normalize(hidden).unsqueeze(1))
-        else:
-            vw = torch.randn(self.decoder.weight.shape, device=device, dtype=torch.float32) * epsilon
-        vb = torch.randn(self.decoder.bias.shape, device=device, dtype=torch.float32) * epsilon
-        new_grad = (hidden.unsqueeze(1) @ torch.transpose(vw, -1, -2)).squeeze() + vb
-        grad = torch.matmul(grad, self.decoder.weight.permute(1, 0)).squeeze() + new_grad
-
         with torch.no_grad():
+            packed_output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.zeros_like(c_stack[0]))
+
+            self.rnn.permute_hidden(hidden, unsorted_indices)
+
+            hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
+                (-1, self.hidden_dim * self.n_directions))
+
+            # # Dropout
+            # hidden = self.drop(hidden)
+
+            if mage:
+                pw = torch.randn((self.decoder.weight.shape[0], 1), device=device, dtype=torch.float32) * epsilon
+                vw = torch.matmul(pw, normalize(hidden).unsqueeze(1))
+            else:
+                vw = torch.randn(self.decoder.weight.shape, device=device, dtype=torch.float32) * epsilon
+            vb = torch.randn(self.decoder.bias.shape, device=device, dtype=torch.float32) * epsilon
+            new_grad = (hidden.unsqueeze(1) @ torch.transpose(vw, -1, -2)).squeeze() + vb
+            grad = torch.matmul(grad, self.decoder.weight.permute(1, 0)).squeeze() + new_grad
+
             # Decode
             decoded = self.decoder(hidden).squeeze(1)
 
@@ -401,29 +404,29 @@ class RNN(nn.Module):
 
         ##grad_transfer = dLdout.permute(1, 0) ## Batch x n_classes
         ##tot_norm = torch.sqrt(tot_norm)
+        with torch.no_grad():
+            dFg = (dLdout * grad) if mage else (dLdout * grad).sum()
+            apply_fwd_grad = apply_fwd_grad_batch if mage else apply_fwd_grad_no_batch
 
-        dFg = (dLdout * grad) if mage else (dLdout * grad).sum()
-        apply_fwd_grad = apply_fwd_grad_batch if mage else apply_fwd_grad_no_batch
+            for i in range(self.rnn.num_layers):
+                for w in [self.rnn.__getattr__(f"weight_ih_l{i}"),
+                          self.rnn.__getattr__(f"weight_hh_l{i}"),
+                          self.rnn.__getattr__(f"bias_ih_l{i}"),
+                          self.rnn.__getattr__(f"bias_hh_l{i}")]:
+                    if w.grad is None:
+                        w.grad = torch.zeros_like(w)
 
-        for i in range(self.rnn.num_layers):
-            for w in [self.rnn.__getattr__(f"weight_ih_l{i}"),
-                      self.rnn.__getattr__(f"weight_hh_l{i}"),
-                      self.rnn.__getattr__(f"bias_ih_l{i}"),
-                      self.rnn.__getattr__(f"bias_hh_l{i}")]:
-                if w.grad is None:
-                    w.grad = torch.zeros_like(w)
-
-            vw_ih, vw_hh, vb_ih, vb_hh = V[i]
-            self.rnn.__getattr__(f"weight_ih_l{i}").grad += apply_fwd_grad(dFg, vw_ih)
-            self.rnn.__getattr__(f"weight_hh_l{i}").grad += apply_fwd_grad(dFg, vw_hh)
-            self.rnn.__getattr__(f"bias_ih_l{i}").grad += apply_fwd_grad(dFg, vb_ih)
-            self.rnn.__getattr__(f"bias_hh_l{i}").grad += apply_fwd_grad(dFg, vb_hh)
-        if self.decoder.weight.grad is None:
-            self.decoder.weight.grad = torch.zeros_like(self.decoder.weight)
-        if self.decoder.bias.grad is None:
-            self.decoder.bias.grad = torch.zeros_like(self.decoder.bias)
-        self.decoder.weight.grad += apply_fwd_grad(dFg, vw)
-        self.decoder.bias.grad += apply_fwd_grad(dFg, vb)
+                vw_ih, vw_hh, vb_ih, vb_hh = V[i]
+                self.rnn.__getattr__(f"weight_ih_l{i}").grad += apply_fwd_grad(dFg, vw_ih) / grad_div
+                self.rnn.__getattr__(f"weight_hh_l{i}").grad += apply_fwd_grad(dFg, vw_hh) / grad_div
+                self.rnn.__getattr__(f"bias_ih_l{i}").grad += apply_fwd_grad(dFg, vb_ih) / grad_div
+                self.rnn.__getattr__(f"bias_hh_l{i}").grad += apply_fwd_grad(dFg, vb_hh) / grad_div
+            if self.decoder.weight.grad is None:
+                self.decoder.weight.grad = torch.zeros_like(self.decoder.weight)
+            if self.decoder.bias.grad is None:
+                self.decoder.bias.grad = torch.zeros_like(self.decoder.bias)
+            self.decoder.weight.grad += apply_fwd_grad(dFg, vw) / grad_div
+            self.decoder.bias.grad += apply_fwd_grad(dFg, vb) / grad_div
 
         return decoded
 
