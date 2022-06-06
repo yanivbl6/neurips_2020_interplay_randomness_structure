@@ -14,6 +14,7 @@ from torchtext import data
 from torchtext import datasets
 from tqdm import tqdm
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from model_LSTM import RNN
 
@@ -53,11 +54,14 @@ TRAIN_EMB = False  # TSM: T
 if DATASET == 'SST':
     MAX_VOCAB_SIZE = None  # max: 15431; TSM: None
     N_LAYERS = 2  # TSM: 1, 2
+    N_LAYERS = 1
 
     RNN_TYPE = 'LSTM'  # TSM: LSTM
     BATCH_SIZE = 64  # TSM: 25 (paper) or 5 (github repo)
     EMB_DIM = [50, 100, 200, 300][1]  # TSM: 300
+    EMB_DIM = [50, 100, 200, 300][0]  # TSM: 300
     HIDDEN_DIM = 256  # TSM: 150
+    HIDDEN_DIM = 8
     G_REC = None
     N_EPOCHS = 500
     DROPOUT = 0
@@ -371,11 +375,11 @@ def train(model, iterator, optimizer, criterion):
     epoch_loss = 0
     epoch_acc = 0
     model.train()
-    times_to_fwd_grad = 30
+    times_to_fwd_grad = 10
     for batch in tqdm(iterator):
         optimizer.zero_grad()
         for _ in range(times_to_fwd_grad):
-            predictions = model.fwd_mode(batch.text, batch.label, criterion, False, times_to_fwd_grad)
+            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)
         acc = accuracy(predictions, batch.label)
