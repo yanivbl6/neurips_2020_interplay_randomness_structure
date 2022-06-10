@@ -308,7 +308,6 @@ class RNN(nn.Module):
         return torch.split(input, tuple(batch_sizes)), hx, unsorted_indices, packed_embedded
 
     def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1):
-        # todo: make network less wide (32?)
         x, hx, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
         device = x[0].device
         epsilon = 1

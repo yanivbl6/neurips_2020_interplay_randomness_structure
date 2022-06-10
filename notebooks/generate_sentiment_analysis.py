@@ -2,6 +2,7 @@
 
 import random
 import os
+import sys
 import time
 import warnings
 import copy
@@ -379,7 +380,7 @@ def train(model, iterator, optimizer, criterion):
     for batch in tqdm(iterator):
         optimizer.zero_grad()
         for _ in range(times_to_fwd_grad):
-            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad)
+            predictions = model.fwd_mode(batch.text, batch.label, criterion, False, times_to_fwd_grad)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)
         acc = accuracy(predictions, batch.label)
@@ -467,6 +468,10 @@ with open(SAVE, 'wb') as f:
 # print("Saved last model to '%s'" % SAVE)
 print("Saved initial and final model to '%s'" % SAVE)
 
+import pickle
+with open("Mage.pkl", "wb") as thefile:
+    pickle.dump(loss_acc, thefile)
+
 # Plot loss and accuracy over training epochs
 fig = plt.figure(figsize=(6, 6), facecolor='w')
 axes = fig.subplots(2, 1)
@@ -484,8 +489,10 @@ ax.plot(epochs, train_acc, label='train')
 ax.plot(epochs, valid_acc, label='valid')
 ax.axhline(0, c='0.5', zorder=-1)
 ax.set_ylabel('Accuracy')
-plt.show(fig)
-plt.close(fig)
+fig.savefig("FWD_grad.png")
+# plt.show(fig)
+# plt.close(fig)
+sys.exit()
 
 # %%
 
