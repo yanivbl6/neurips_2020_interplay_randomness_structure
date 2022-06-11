@@ -60,9 +60,12 @@ parser.add_argument('--droprate', default=0.0, type=float,
 parser.add_argument('--train-emb', action='store_true', default=False,
                     help='traing the embedding layer')
 
+parser.add_argument('--save-corr', action='store_true', default=False,
+                    help='save correlation between output of the LSTM for different time steps')
+
 
 args = parser.parse_args()
-RNN_TYPE  = args.rnn_type
+RNN_TYPE = args.rnn_type
 EMB_DIM = args.emb_dim
 HIDDEN_DIM = args.hidden_dim
 N_LAYERS = args.num_layers
@@ -70,7 +73,7 @@ BIDIRECTIONAL = args.bidirectional
 WEIGHT_DECAY = args.weight_decay
 DROPOUT = args.droprate
 TRAIN_EMB = args.train_emb
-
+SAVE_CORR = args.save_corr
 
 
 
@@ -289,7 +292,7 @@ PAD_IDX = TEXT.vocab.stoi[TEXT.pad_token]
 
 # Instantiate
 model = RNN(RNN_TYPE, INPUT_DIM, EMB_DIM, HIDDEN_DIM, OUTPUT_DIM, N_LAYERS,
-            BIDIRECTIONAL, DROPOUT, PAD_IDX, TRAIN_EMB)
+            BIDIRECTIONAL, DROPOUT, PAD_IDX, TRAIN_EMB, SAVE_CORR)
 
 
 def count_parameters(model):
@@ -419,6 +422,16 @@ else:
         correct = max_preds.squeeze(1).eq(y)
         return correct.sum() / torch.FloatTensor([y.shape[0]]).to(device)
 
+def corr_mat_w_mismatching_dims(matrices):
+    with torch.no_grad():
+        ones_like = [torch.ones_like(m) for m in matrices]
+        max_shape = max([m.shape[0] for m in matrices])
+        matrices = [torch.nn.functional.pad(m, (0, max_shape-m.shape[0], 0, max_shape-m.shape[1])) for m in matrices]
+        ones_like = [torch.nn.functional.pad(m, (0, max_shape-m.shape[0], 0, max_shape-m.shape[1])) for m in ones_like]
+        stack = torch.stack(matrices, dim=0)
+        num_in_each_time_step = torch.sum(torch.stack(ones_like, dim=0), dim=0, keepdim=True)
+        corr_mat = torch.sum(stack / num_in_each_time_step, dim=0)
+    return corr_mat
 
 
 
@@ -426,11 +439,17 @@ def train(model, iterator, optimizer, criterion):
     epoch_loss = 0
     epoch_acc = 0
     model.train()
+    corr_mat = torch.zeros((1,1))
+    input_corr_matrices = []
+    output_corr_matrices = []
     for batch in tqdm(iterator):
         optimizer.zero_grad()
         if args.use_fwd:
             for _ in range(args.num_directions):
                 predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions)
+            if model.save_correlations:
+                input_corr_matrices.append(model.input_correlation_matrix)
+                output_corr_matrices.append(model.output_correlation_matrix)
             loss = criterion(predictions, batch.label)
             acc = accuracy(predictions, batch.label)
 
@@ -443,7 +462,10 @@ def train(model, iterator, optimizer, criterion):
         optimizer.step()
         epoch_loss += loss.item()
         epoch_acc += acc.item()
-    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+    if model.save_correlations:
+        corr_mats = (corr_mat_w_mismatching_dims(input_corr_matrices),
+                     corr_mat_w_mismatching_dims(output_corr_matrices))
+    return epoch_loss / len(iterator), epoch_acc / len(iterator), corr_mats
 
 
 def evaluate(model, iterator, criterion):
@@ -471,7 +493,7 @@ def epoch_time(start_time, end_time):
 
 # Run training
 
-wandb.init(project="mage-text", entity="yanivbl6", config = {"PAD_IDX": PAD_IDX, "INPUT_DIM": INPUT_DIM} )
+wandb.init(project="mage-text", entity="dl-projects", config = {"PAD_IDX": PAD_IDX, "INPUT_DIM": INPUT_DIM} )
 
 wandb.config.update(args)
 
@@ -481,7 +503,7 @@ train_losses, valid_losses = np.zeros((2, N_EPOCHS))
 loss_acc = np.zeros((N_EPOCHS, 4))
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss, train_acc = train(model, train_iterator, optimizer, criterion)
+    train_loss, train_acc, corr_mats = train(model, train_iterator, optimizer, criterion)
     valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
     end_time = time.time()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
@@ -501,6 +523,14 @@ for epoch in range(N_EPOCHS):
                 "Train Acc": train_acc * 100, 
                 "Validation Acc": valid_acc * 100
                 })
+
+    if SAVE_CORR:
+        for name, corr_mat in zip(["inputs", "outputs"], corr_mats):
+            fig, ax = plt.subplots()
+            corr_mat = corr_mat.cpu().numpy()
+            im = ax.matshow(corr_mat)
+            fig.colorbar(im)
+            wandb.log({f"{name} correlation matrix": fig})
 
     if (epoch + 1) % show_step == 0 or epoch == 0:
         print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')

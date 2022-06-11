@@ -203,7 +203,7 @@ def create_new_Vs_mage_all_times(x, hx, rnn, j, device, epsilon):
 
 class RNN(nn.Module):
     def __init__(self, rnn_type, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers,
-                 bidirectional, dropout, pad_idx, train_embedding=True):
+                 bidirectional, dropout, pad_idx, train_embedding=True, save_correlations=False):
         super().__init__()
         self.rnn_type = rnn_type
         self.vocab_size = vocab_size
@@ -213,6 +213,10 @@ class RNN(nn.Module):
         self.n_layers = n_layers
         self.bidirectional = bidirectional
         self.dropout = dropout
+        self.save_correlations = save_correlations
+        self.input_correlation_matrix = None
+        self.output_correlation_matrix = None
+
 
         # Cell states
         if rnn_type == 'RNN':
@@ -310,6 +314,10 @@ class RNN(nn.Module):
     def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1):
         x, hx, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
         device = x[0].device
+        if self.save_correlations:
+            avg_x_stack = torch.stack([x_t.mean(dim=0) for x_t in x], dim=0)
+            norms = torch.norm(avg_x_stack, dim=1).unsqueeze(1)
+            self.input_correlation_matrix = avg_x_stack @ avg_x_stack.T / (1e-8 + norms @ norms.T)
         epsilon = 1
         V = {}
         grad = 0
@@ -486,6 +494,11 @@ class RNN(nn.Module):
             packed_output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.zeros_like(c_stack[0]))
 
             self.rnn.permute_hidden(hidden, unsorted_indices)
+
+            if self.save_correlations:
+                avg_h_stack = torch.stack([h.mean(dim=0) for h in h_list], dim=0)
+                norms = torch.norm(avg_h_stack, dim=1).unsqueeze(1)
+                self.output_correlation_matrix = avg_h_stack @ avg_h_stack.T / (1e-8 + norms @ norms.T)
 
             hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
                 (-1, self.hidden_dim * self.n_directions))
