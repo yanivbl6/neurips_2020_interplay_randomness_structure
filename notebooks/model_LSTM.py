@@ -28,10 +28,10 @@ def apply_fwd_grad_batch(dFg, vw):
     else:
         return dFg.sum() * vw
 
-def compute_corr_matrix(activation_sequence):
-    padded_activations = torch.nn.utils.rnn.pad_packed_sequence(activation_sequence, batch_first=True)
-    norms = torch.norm(padded_activations, dim=-1).unsqueeze(1)
-    return padded_activations @ padded_activations.T / (1e-8 + norms @ norms.T)
+def compute_corr_matrix(padded_activations):
+    norms = torch.norm(padded_activations, dim=-1).unsqueeze(-1)
+    corr_matrices = padded_activations @ padded_activations.transpose(-2, -1) / (1e-8 + norms @ norms.transpose(-2, -1))
+    return torch.mean(corr_matrices, dim=0)
 
 def create_new_Vs(rnn, j, device, epsilon):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
@@ -316,13 +316,14 @@ class RNN(nn.Module):
         hx = (zeros, zeros)
         self.rnn.check_forward_args(input, hx, batch_sizes)
 
-        return torch.split(input, tuple(batch_sizes)), hx, unsorted_indices, packed_embedded
+        return hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded
 
     def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1):
-        x, hx, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
+        hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
+        x = torch.split(input, tuple(batch_sizes))
         device = x[0].device
         if self.save_correlations:
-            self.input_correlation_matrix = compute_corr_matrix(x)
+            self.input_correlation_matrix = compute_corr_matrix(torch.nn.utils.rnn.pad_packed_sequence(packed_embedded)[0])
         epsilon = 1
         V = {}
         grad = 0
@@ -501,9 +502,12 @@ class RNN(nn.Module):
             self.rnn.permute_hidden(hidden, unsorted_indices)
 
             if self.save_correlations:
-                avg_h_stack = torch.stack([h.mean(dim=0) for h in h_list], dim=0)
-                norms = torch.norm(avg_h_stack, dim=1).unsqueeze(1)
-                self.output_correlation_matrix = avg_h_stack @ avg_h_stack.T / (1e-8 + norms @ norms.T)
+                padded = torch.nn.utils.rnn.pad_packed_sequence(torch.nn.utils.rnn.PackedSequence(torch.cat(h_list, dim=0),
+                                                                                                  batch_sizes=batch_sizes,
+                                                                                                  sorted_indices=sorted_indices,
+                                                                                                  unsorted_indices=unsorted_indices),
+                                                                batch_first=True)
+                self.output_correlation_matrix = compute_corr_matrix(padded[0])
 
             hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
                 (-1, self.hidden_dim * self.n_directions))
