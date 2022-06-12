@@ -28,6 +28,11 @@ def apply_fwd_grad_batch(dFg, vw):
     else:
         return dFg.sum() * vw
 
+def compute_corr_matrix(activation_sequence):
+    padded_activations = torch.nn.utils.rnn.pad_packed_sequence(activation_sequence, batch_first=True)
+    norms = torch.norm(padded_activations, dim=-1).unsqueeze(1)
+    return padded_activations @ padded_activations.T / (1e-8 + norms @ norms.T)
+
 def create_new_Vs(rnn, j, device, epsilon):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
     W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
@@ -215,6 +220,8 @@ class RNN(nn.Module):
         self.dropout = dropout
         self.save_correlations = save_correlations
         self.input_correlation_matrix = None
+        self.correlation_matrixes = [[] for _ in range(n_layers + 1)]
+
         self.output_correlation_matrix = None
 
 
@@ -315,9 +322,7 @@ class RNN(nn.Module):
         x, hx, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
         device = x[0].device
         if self.save_correlations:
-            avg_x_stack = torch.stack([x_t.mean(dim=0) for x_t in x], dim=0)
-            norms = torch.norm(avg_x_stack, dim=1).unsqueeze(1)
-            self.input_correlation_matrix = avg_x_stack @ avg_x_stack.T / (1e-8 + norms @ norms.T)
+            self.input_correlation_matrix = compute_corr_matrix(x)
         epsilon = 1
         V = {}
         grad = 0

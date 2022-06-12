@@ -531,6 +531,7 @@ for epoch in range(N_EPOCHS):
             im = ax.matshow(corr_mat)
             fig.colorbar(im)
             wandb.log({f"{name} correlation matrix": fig})
+            plt.close(fig)
 
     if (epoch + 1) % show_step == 0 or epoch == 0:
         print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
