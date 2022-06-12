@@ -29,8 +29,8 @@ def apply_fwd_grad_batch(dFg, vw):
         return dFg.sum() * vw
 
 def compute_corr_matrix(padded_activations):
-    norms = torch.norm(padded_activations, dim=-1).unsqueeze(-1)
-    corr_matrices = padded_activations @ padded_activations.transpose(-2, -1) / (1e-8 + norms @ norms.transpose(-2, -1))
+    norms = torch.norm(padded_activations[0], dim=-1).unsqueeze(-1)
+    corr_matrices = padded_activations[0] @ padded_activations[0].transpose(-2, -1) / (1e-8 + norms @ norms.transpose(-2, -1))
     return torch.mean(corr_matrices, dim=0)
 
 def create_new_Vs(rnn, j, device, epsilon):
@@ -323,13 +323,13 @@ class RNN(nn.Module):
         x = torch.split(input, tuple(batch_sizes))
         device = x[0].device
         if self.save_correlations:
-            self.input_correlation_matrix = compute_corr_matrix(torch.nn.utils.rnn.pad_packed_sequence(packed_embedded)[0])
+            self.input_correlation_matrix = compute_corr_matrix(torch.nn.utils.rnn.pad_packed_sequence(packed_embedded, batch_first=True))
         epsilon = 1
         V = {}
         grad = 0
         h_stack = []
         c_stack = []
-        # relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))]
+        relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))]
         # relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))[-3:]]
         with torch.no_grad():
             for j in range(self.rnn.num_layers):
@@ -367,17 +367,18 @@ class RNN(nn.Module):
 
                 # todo: remove V creation from time step
                 if mage:
-                    _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_all_times(x, hx, self.rnn, j, device, epsilon)
+                    pass
+                    # _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_all_times(x, hx, self.rnn, j, device, epsilon)
                 else:
                     _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
-                _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
-                _vw_hi, _vw_hf, _vw_hg, _vw_ho = _vw_h
-                _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
-                _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
-                vw_ii, vw_if, vw_ig, vw_io = _vw_i
-                vw_hi, vw_hf, vw_hg, vw_ho = _vw_h
-                vb_ii, vb_if, vb_ig, vb_io = _vb_i
-                vb_hi, vb_hf, vb_hg, vb_ho = _vb_h
+                    vw_ii, vw_if, vw_ig, vw_io = _vw_i
+                    vw_hi, vw_hf, vw_hg, vw_ho = _vw_h
+                    vb_ii, vb_if, vb_ig, vb_io = _vb_i
+                    vb_hi, vb_hf, vb_hg, vb_ho = _vb_h
+                    _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
+                    _vw_hi, _vw_hf, _vw_hg, _vw_ho = _vw_h
+                    _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
+                    _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
 
                 for seq in range(len(x)):
                     x_t = x[seq]
@@ -386,9 +387,15 @@ class RNN(nn.Module):
                     h_part = h[:x_t.shape[0]]
                     c_t_1 = c_t_1[:x_t.shape[0]]
                     dz_dW = z_grad_list[seq] if j > 0 else None
+                    # if mage:
+                    #     _vw_ii, _vw_if, _vw_ig, _vw_io = [v[:x_t.shape[0]] for v in _vw_i]
+                    #     _vw_hi, _vw_hf, _vw_hg, _vw_ho = [v[:x_t.shape[0]] for v in _vw_h]
                     if mage:
-                        _vw_ii, _vw_if, _vw_ig, _vw_io = [v[:x_t.shape[0]] for v in _vw_i]
-                        _vw_hi, _vw_hf, _vw_hg, _vw_ho = [v[:x_t.shape[0]] for v in _vw_h]
+                        _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, device, epsilon)
+                        _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
+                        _vw_hi, _vw_hf, _vw_hg, _vw_ho = _vw_h
+                        _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
+                        _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
 
                     i_p = x_t @ W_ii.T + b_ii + h_part @ W_hi.T + b_hi
                     di_p_dW = (x_t.unsqueeze(1) @ torch.transpose(_vw_ii, -1, -2)).squeeze(1) + \
@@ -464,23 +471,23 @@ class RNN(nn.Module):
                     dh_t_dW_full_batch = combine_batch(dh_t_dW, dh_t_dW_full_batch)
                     c_t_1 = c_t
 
-                    # if (j, seq) in relevant_Vs:
-                    #     vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
-                    #     vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
-                    #     vw_if += combine_batch(_vw_if, torch.zeros_like(vw_if))
-                    #     vw_hf += combine_batch(_vw_hf, torch.zeros_like(vw_hf))
-                    #     vw_ig += combine_batch(_vw_ig, torch.zeros_like(vw_ig))
-                    #     vw_hg += combine_batch(_vw_hg, torch.zeros_like(vw_hg))
-                    #     vw_io += combine_batch(_vw_io, torch.zeros_like(vw_io))
-                    #     vw_ho += combine_batch(_vw_ho, torch.zeros_like(vw_ho))
-                    #     vb_ii += _vb_ii
-                    #     vb_hi += _vb_hi
-                    #     vb_if += _vb_if
-                    #     vb_hf += _vb_hf
-                    #     vb_ig += _vb_ig
-                    #     vb_hg += _vb_hg
-                    #     vb_io += _vb_io
-                    #     vb_ho += _vb_ho
+                    if (j, seq) in relevant_Vs:
+                        vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
+                        vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
+                        vw_if += combine_batch(_vw_if, torch.zeros_like(vw_if))
+                        vw_hf += combine_batch(_vw_hf, torch.zeros_like(vw_hf))
+                        vw_ig += combine_batch(_vw_ig, torch.zeros_like(vw_ig))
+                        vw_hg += combine_batch(_vw_hg, torch.zeros_like(vw_hg))
+                        vw_io += combine_batch(_vw_io, torch.zeros_like(vw_io))
+                        vw_ho += combine_batch(_vw_ho, torch.zeros_like(vw_ho))
+                        vb_ii += _vb_ii
+                        vb_hi += _vb_hi
+                        vb_if += _vb_if
+                        vb_hf += _vb_hf
+                        vb_ig += _vb_ig
+                        vb_hg += _vb_hg
+                        vb_io += _vb_io
+                        vb_ho += _vb_ho
 
 
                 # todo: add dropout as in nn.LSTM
@@ -507,7 +514,7 @@ class RNN(nn.Module):
                                                                                                   sorted_indices=sorted_indices,
                                                                                                   unsorted_indices=unsorted_indices),
                                                                 batch_first=True)
-                self.output_correlation_matrix = compute_corr_matrix(padded[0])
+                self.output_correlation_matrix = compute_corr_matrix(padded)
 
             hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
                 (-1, self.hidden_dim * self.n_directions))

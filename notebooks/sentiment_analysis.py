@@ -517,21 +517,29 @@ for epoch in range(N_EPOCHS):
 
     show_step = N_EPOCHS // N_EPOCHS
 
-    wandb.log({ "Epoch": epoch+1, 
-                "Train Loss": train_loss, 
-                "Validation Loss": valid_loss, 
-                "Train Acc": train_acc * 100, 
-                "Validation Acc": valid_acc * 100
-                })
 
     if SAVE_CORR:
+        figs = {}
         for name, corr_mat in zip(["inputs", "outputs"], corr_mats):
             fig, ax = plt.subplots()
             corr_mat = corr_mat.cpu().numpy()
             im = ax.matshow(corr_mat)
             fig.colorbar(im)
-            wandb.log({f"{name} correlation matrix": fig})
-            plt.close(fig)
+            figs[name] = fig
+
+        wandb.log({"Epoch": epoch + 1,
+               "Train Loss": train_loss,
+               "Validation Loss": valid_loss,
+               "Train Acc": train_acc * 100,
+               "Validation Acc": valid_acc * 100,
+               f"inputs correlation matrix": figs["inputs"],
+               f"outputs correlation matrix": figs["outputs"]})
+    else:
+        wandb.log({"Epoch": epoch + 1,
+                   "Train Loss": train_loss,
+                   "Validation Loss": valid_loss,
+                   "Train Acc": train_acc * 100,
+                   "Validation Acc": valid_acc * 100,})
 
     if (epoch + 1) % show_step == 0 or epoch == 0:
         print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')

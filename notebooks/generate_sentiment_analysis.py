@@ -241,7 +241,7 @@ PAD_IDX = TEXT.vocab.stoi[TEXT.pad_token]
 
 # Instantiate
 model = RNN(RNN_TYPE, INPUT_DIM, EMB_DIM, HIDDEN_DIM, OUTPUT_DIM, N_LAYERS,
-            BIDIRECTIONAL, DROPOUT, PAD_IDX, TRAIN_EMB, save_correlations=True)
+            BIDIRECTIONAL, DROPOUT, PAD_IDX, TRAIN_EMB, save_correlations=False)
 
 
 def count_parameters(model):
@@ -379,8 +379,8 @@ def train(model, iterator, optimizer, criterion):
     times_to_fwd_grad = 10
     for batch in tqdm(iterator):
         optimizer.zero_grad()
-        for _ in range(times_to_fwd_grad):
-            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad)
+        for _ in range(1):
+            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, 1)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)
         acc = accuracy(predictions, batch.label)
