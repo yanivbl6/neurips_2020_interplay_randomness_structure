@@ -60,6 +60,9 @@ parser.add_argument('--droprate', default=0.0, type=float,
 parser.add_argument('--train-emb', action='store_true', default=False,
                     help='traing the embedding layer')
 
+parser.add_argument('--no-wandb', action='store_true', default=False,
+                    help='disables W&B logging')
+
 parser.add_argument('--save-corr', action='store_true', default=False,
                     help='save correlation between output of the LSTM for different time steps')
 
@@ -439,7 +442,7 @@ def train(model, iterator, optimizer, criterion):
     epoch_loss = 0
     epoch_acc = 0
     model.train()
-    corr_mat = torch.zeros((1,1))
+    corr_mats = ([], [])
     input_corr_matrices = []
     output_corr_matrices = []
     for batch in tqdm(iterator):
@@ -493,9 +496,10 @@ def epoch_time(start_time, end_time):
 
 # Run training
 
-wandb.init(project="mage-text", entity="dl-projects", config = {"PAD_IDX": PAD_IDX, "INPUT_DIM": INPUT_DIM} )
+if not args.no_wandb:
+    wandb.init(project="mage-text", entity="dl-projects", config = {"PAD_IDX": PAD_IDX, "INPUT_DIM": INPUT_DIM} )
 
-wandb.config.update(args)
+    wandb.config.update(args)
 
 
 best_valid_loss = float('inf')
@@ -517,29 +521,29 @@ for epoch in range(N_EPOCHS):
 
     show_step = N_EPOCHS // N_EPOCHS
 
+    if not args.no_wandb:
+        if SAVE_CORR:
+            figs = {}
+            for name, corr_mat in zip(["inputs", "outputs"], corr_mats):
+                fig, ax = plt.subplots()
+                corr_mat = corr_mat.cpu().numpy()
+                im = ax.matshow(corr_mat)
+                fig.colorbar(im)
+                figs[name] = fig
 
-    if SAVE_CORR:
-        figs = {}
-        for name, corr_mat in zip(["inputs", "outputs"], corr_mats):
-            fig, ax = plt.subplots()
-            corr_mat = corr_mat.cpu().numpy()
-            im = ax.matshow(corr_mat)
-            fig.colorbar(im)
-            figs[name] = fig
-
-        wandb.log({"Epoch": epoch + 1,
-               "Train Loss": train_loss,
-               "Validation Loss": valid_loss,
-               "Train Acc": train_acc * 100,
-               "Validation Acc": valid_acc * 100,
-               f"inputs correlation matrix": figs["inputs"],
-               f"outputs correlation matrix": figs["outputs"]})
-    else:
-        wandb.log({"Epoch": epoch + 1,
+            wandb.log({"Epoch": epoch + 1,
                    "Train Loss": train_loss,
                    "Validation Loss": valid_loss,
                    "Train Acc": train_acc * 100,
-                   "Validation Acc": valid_acc * 100,})
+                   "Validation Acc": valid_acc * 100,
+                   f"inputs correlation matrix": figs["inputs"],
+                   f"outputs correlation matrix": figs["outputs"]})
+        else:
+            wandb.log({"Epoch": epoch + 1,
+                       "Train Loss": train_loss,
+                       "Validation Loss": valid_loss,
+                       "Train Acc": train_acc * 100,
+                       "Validation Acc": valid_acc * 100,})
 
     if (epoch + 1) % show_step == 0 or epoch == 0:
         print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')

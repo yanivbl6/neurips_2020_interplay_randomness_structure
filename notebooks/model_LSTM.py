@@ -28,10 +28,12 @@ def apply_fwd_grad_batch(dFg, vw):
     else:
         return dFg.sum() * vw
 
-def compute_corr_matrix(padded_activations):
+def compute_corr_matrix(padded_activations, batch_sizes):
     norms = torch.norm(padded_activations[0], dim=-1).unsqueeze(-1)
     corr_matrices = padded_activations[0] @ padded_activations[0].transpose(-2, -1) / (1e-8 + norms @ norms.transpose(-2, -1))
-    return torch.mean(corr_matrices, dim=0)
+    seqs_in_batch = (batch_sizes.unsqueeze(1) @ torch.ones_like(batch_sizes).unsqueeze(0)).to(corr_matrices.device)
+    seqs_in_batch = torch.min(seqs_in_batch, seqs_in_batch.T)
+    return torch.sum(corr_matrices / seqs_in_batch.unsqueeze(0), dim=0)
 
 def create_new_Vs(rnn, j, device, epsilon):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
@@ -323,7 +325,7 @@ class RNN(nn.Module):
         x = torch.split(input, tuple(batch_sizes))
         device = x[0].device
         if self.save_correlations:
-            self.input_correlation_matrix = compute_corr_matrix(torch.nn.utils.rnn.pad_packed_sequence(packed_embedded, batch_first=True))
+            self.input_correlation_matrix = compute_corr_matrix(torch.nn.utils.rnn.pad_packed_sequence(packed_embedded, batch_first=True), batch_sizes)
         epsilon = 1
         V = {}
         grad = 0
@@ -514,7 +516,7 @@ class RNN(nn.Module):
                                                                                                   sorted_indices=sorted_indices,
                                                                                                   unsorted_indices=unsorted_indices),
                                                                 batch_first=True)
-                self.output_correlation_matrix = compute_corr_matrix(padded)
+                self.output_correlation_matrix = compute_corr_matrix(padded, batch_sizes)
 
             hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
                 (-1, self.hidden_dim * self.n_directions))
