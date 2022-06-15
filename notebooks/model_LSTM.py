@@ -305,7 +305,7 @@ class RNN(nn.Module):
         # embedded = [sent len, batch size, emb dim]
 
         # Pack sequence
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths)
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths.cpu())
 
         if isinstance(packed_embedded, PackedSequence):
             input, batch_sizes, sorted_indices, unsorted_indices = packed_embedded

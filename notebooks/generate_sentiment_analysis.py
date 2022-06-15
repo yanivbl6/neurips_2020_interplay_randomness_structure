@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 import torch
 from torchtext.legacy import data
-from torchtext import datasets
+from torchtext.legacy import datasets
 from tqdm import tqdm
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -945,8 +945,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
-from torchtext import data
-from torchtext import datasets
+from torchtext.legacy import data
+from torchtext.legacy import datasets
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from model_LSTM import RNN
 

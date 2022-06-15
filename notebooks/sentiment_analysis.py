@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 import torch
 from torchtext.legacy import data
-from torchtext import datasets
+from torchtext.legacy import datasets
 from tqdm import tqdm
 
 import wandb
@@ -65,6 +65,10 @@ parser.add_argument('--no-wandb', action='store_true', default=False,
 
 parser.add_argument('--save-corr', action='store_true', default=False,
                     help='save correlation between output of the LSTM for different time steps')
+
+
+parser.add_argument('--dataset', type=str, default="IMDB", help='Type of dataset (IMDB/SST')
+
 
 
 args = parser.parse_args()
