@@ -11,7 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
-from torchtext import data
+from torchtext.legacy import data
 from torchtext import datasets
 from tqdm import tqdm
 
