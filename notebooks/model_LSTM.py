@@ -273,7 +273,7 @@ class RNN(nn.Module):
         # embedded = [sent len, batch size, emb dim]
 
         # Pack sequence
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths)
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths.cpu())
         if self.rnn_type == 'LSTM':
             packed_output, (hidden, cell) = self.rnn(packed_embedded)
         else:
