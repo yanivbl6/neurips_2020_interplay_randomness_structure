@@ -320,7 +320,7 @@ class RNN(nn.Module):
 
         return hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded
 
-    def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1):
+    def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1, reduce_batch=False):
         hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
         x = torch.split(input, tuple(batch_sizes))
         device = x[0].device
@@ -384,14 +384,9 @@ class RNN(nn.Module):
 
                 for seq in range(len(x)):
                     x_t = x[seq]
-                    # if x_t.shape[0] != 64:
-                    #     continue
                     h_part = h[:x_t.shape[0]]
                     c_t_1 = c_t_1[:x_t.shape[0]]
                     dz_dW = z_grad_list[seq] if j > 0 else None
-                    # if mage:
-                    #     _vw_ii, _vw_if, _vw_ig, _vw_io = [v[:x_t.shape[0]] for v in _vw_i]
-                    #     _vw_hi, _vw_hf, _vw_hg, _vw_ho = [v[:x_t.shape[0]] for v in _vw_h]
                     if mage:
                         _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, device, epsilon)
                         _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
@@ -551,6 +546,8 @@ class RNN(nn.Module):
         with torch.no_grad():
             dFg = (dLdout * grad) if mage else (dLdout * grad).sum()
             apply_fwd_grad = apply_fwd_grad_batch if mage else apply_fwd_grad_no_batch
+            if mage and reduce_batch:
+                apply_fwd_grad = lambda dFg, vw: dFg.sum() * vw.mean(dim=0)
 
             for i in range(self.rnn.num_layers):
                 for w in [self.rnn.__getattr__(f"weight_ih_l{i}"),

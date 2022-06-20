@@ -66,6 +66,9 @@ parser.add_argument('--no-wandb', action='store_true', default=False,
 parser.add_argument('--save-corr', action='store_true', default=False,
                     help='save correlation between output of the LSTM for different time steps')
 
+parser.add_argument('--reduce-batch', action='store_true', default=False,
+                    help='average on the batch dimension on Mage')
+
 
 args = parser.parse_args()
 RNN_TYPE = args.rnn_type
@@ -449,7 +452,7 @@ def train(model, iterator, optimizer, criterion):
         optimizer.zero_grad()
         if args.use_fwd:
             for _ in range(args.num_directions):
-                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions)
+                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions, args.reduce_batch)
             if model.save_correlations:
                 input_corr_matrices.append(model.input_correlation_matrix)
                 output_corr_matrices.append(model.output_correlation_matrix)

@@ -15,7 +15,7 @@ from torchtext import data
 from torchtext import datasets
 from tqdm import tqdm
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from model_LSTM import RNN
 
@@ -62,7 +62,7 @@ if DATASET == 'SST':
     EMB_DIM = [50, 100, 200, 300][1]  # TSM: 300
     EMB_DIM = [50, 100, 200, 300][0]  # TSM: 300
     HIDDEN_DIM = 256  # TSM: 150
-    HIDDEN_DIM = 8
+    HIDDEN_DIM = 64
     G_REC = None
     N_EPOCHS = 500
     DROPOUT = 0
@@ -78,11 +78,12 @@ if DATASET == 'SST':
 elif DATASET == 'IMDB':
     MAX_VOCAB_SIZE = 25_000  # for IMDB
     BATCH_SIZE = 64
-    HIDDEN_DIM = 1024
+    N_LAYERS = 1
+    HIDDEN_DIM = 64
     N_LAYERS = 2
     RNN_TYPE = 'LSTM'
     N_EPOCHS = 500
-    EMB_DIM = [50, 100, 200, 300][3]
+    EMB_DIM = [50, 100, 200, 300][0]
     G_REC = None
     DROPOUT = 0  # TSM: 0.5
 # Network parameters
@@ -343,7 +344,7 @@ import torch.nn as nn
 # optimizer = optim.Adam(model.parameters())
 
 # Learning rate for adam should be scaled by network size!
-lr0 = 0.01
+lr0 = 0.1
 lr = lr0 / HIDDEN_DIM
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
 
@@ -374,13 +375,14 @@ else:
 
 def train(model, iterator, optimizer, criterion):
     epoch_loss = 0
+    epoch_loss = 0
     epoch_acc = 0
     model.train()
     times_to_fwd_grad = 10
     for batch in tqdm(iterator):
         optimizer.zero_grad()
-        for _ in range(1):
-            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, 1)
+        for _ in range(times_to_fwd_grad):
+            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)
         acc = accuracy(predictions, batch.label)
