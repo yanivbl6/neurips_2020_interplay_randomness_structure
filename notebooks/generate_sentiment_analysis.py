@@ -382,7 +382,7 @@ def train(model, iterator, optimizer, criterion):
     for batch in tqdm(iterator):
         optimizer.zero_grad()
         for _ in range(times_to_fwd_grad):
-            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad)
+            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad, True)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)
         acc = accuracy(predictions, batch.label)

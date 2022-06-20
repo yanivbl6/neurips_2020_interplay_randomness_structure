@@ -28,6 +28,10 @@ def apply_fwd_grad_batch(dFg, vw):
     else:
         return dFg.sum() * vw
 
+def apply_fwd_grad_reduce_batch(dFg, vw):
+    return dFg.sum() * (vw.mean(dim=0) if vw.ndim == 3 else vw)
+
+
 def compute_corr_matrix(padded_activations, batch_sizes):
     norms = torch.norm(padded_activations[0], dim=-1).unsqueeze(-1)
     corr_matrices = padded_activations[0] @ padded_activations[0].transpose(-2, -1) / (1e-8 + norms @ norms.transpose(-2, -1))
@@ -547,7 +551,7 @@ class RNN(nn.Module):
             dFg = (dLdout * grad) if mage else (dLdout * grad).sum()
             apply_fwd_grad = apply_fwd_grad_batch if mage else apply_fwd_grad_no_batch
             if mage and reduce_batch:
-                apply_fwd_grad = lambda dFg, vw: dFg.sum() * vw.mean(dim=0)
+                apply_fwd_grad = apply_fwd_grad_reduce_batch
 
             for i in range(self.rnn.num_layers):
                 for w in [self.rnn.__getattr__(f"weight_ih_l{i}"),
