@@ -69,6 +69,9 @@ parser.add_argument('--save-corr', action='store_true', default=False,
 parser.add_argument('--reduce-batch', action='store_true', default=False,
                     help='average on the batch dimension on Mage')
 
+parser.add_argument('--gpu', default=0, type=int,
+                    help='which GPU to use')
+
 
 args = parser.parse_args()
 RNN_TYPE = args.rnn_type
@@ -83,7 +86,7 @@ SAVE_CORR = args.save_corr
 
 
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from model_LSTM import RNN
 
