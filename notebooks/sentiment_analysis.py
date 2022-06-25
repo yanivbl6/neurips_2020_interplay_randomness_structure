@@ -69,6 +69,9 @@ parser.add_argument('--save-corr', action='store_true', default=False,
 parser.add_argument('--reduce-batch', action='store_true', default=False,
                     help='average on the batch dimension on Mage')
 
+parser.add_argument('--batched-mage', action='store_true', default=False,
+                    help='average on the batch dimension on activations for Mage')
+
 parser.add_argument('--gpu', default=0, type=int,
                     help='which GPU to use')
 
@@ -455,7 +458,7 @@ def train(model, iterator, optimizer, criterion):
         optimizer.zero_grad()
         if args.use_fwd:
             for _ in range(args.num_directions):
-                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions, args.reduce_batch)
+                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions, args.reduce_batch, args.batched_mage)
             if model.save_correlations:
                 input_corr_matrices.append(model.input_correlation_matrix)
                 output_corr_matrices.append(model.output_correlation_matrix)
