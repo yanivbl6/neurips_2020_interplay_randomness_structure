@@ -9,6 +9,11 @@ def normalize(x):
     return x / (x.norm(dim=-1, keepdim=True) + eps)
 
 
+def invert_sigma(A):
+    eps = 1E-8
+    return torch.linalg.inv(A.T @ A + eps * torch.eye(A.shape[0]))
+
+
 def split_by_4(x):
     return torch.split(x, x.shape[0] // 4)
 
@@ -77,6 +82,36 @@ def create_new_Vs(rnn, j, device, epsilon):
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
+def create_new_Vs_binary(rnn, j, device, epsilon):
+    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
+    W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
+    b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
+    b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
+
+    _vw_ii = torch.randint(0, 2, W_ii.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vw_if = torch.randint(0, 2, W_if.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vw_ig = torch.randint(0, 2, W_ig.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vw_io = torch.randint(0, 2, W_io.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vw_hi = torch.randint(0, 2, W_hi.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vw_hf = torch.randint(0, 2, W_hf.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vw_hg = torch.randint(0, 2, W_hg.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vw_ho = torch.randint(0, 2, W_ho.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_ii = torch.randint(0, 2, b_ii.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_if = torch.randint(0, 2, b_if.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_ig = torch.randint(0, 2, b_ig.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_io = torch.randint(0, 2, b_io.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_hi = torch.randint(0, 2, b_hi.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_hf = torch.randint(0, 2, b_hf.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_hg = torch.randint(0, 2, b_hg.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_ho = torch.randint(0, 2, b_ho.shape, dtype=torch.float32, device=device) * 2 - 1
+
+    _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
+    _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
+    _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
+    _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
+
+    return _vw_i, _vw_h, _vb_i, _vb_h
+
 
 def create_new_Vs_mage(x_t, h_part, rnn, j, device, epsilon, with_batch=False):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
@@ -102,6 +137,91 @@ def create_new_Vs_mage(x_t, h_part, rnn, j, device, epsilon, with_batch=False):
     _vb_hf = torch.randn(b_hf.shape, device=device) * epsilon
     _vb_hg = torch.randn(b_hg.shape, device=device) * epsilon
     _vb_ho = torch.randn(b_ho.shape, device=device) * epsilon
+
+    _vw_ii = torch.matmul(pw_ii, normalize(x_t).unsqueeze(1))
+    _vw_hi = torch.matmul(pw_hi, normalize(h_part).unsqueeze(1))
+    _vw_if = torch.matmul(pw_if, normalize(x_t).unsqueeze(1))
+    _vw_hf = torch.matmul(pw_hf, normalize(h_part).unsqueeze(1))
+    _vw_ig = torch.matmul(pw_ig, normalize(x_t).unsqueeze(1))
+    _vw_hg = torch.matmul(pw_hg, normalize(h_part).unsqueeze(1))
+    _vw_io = torch.matmul(pw_io, normalize(x_t).unsqueeze(1))
+    _vw_ho = torch.matmul(pw_ho, normalize(h_part).unsqueeze(1))
+
+    _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
+    _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
+    _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
+    _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
+
+    return _vw_i, _vw_h, _vb_i, _vb_h
+
+def create_new_Vs_mage_learn_sigmas(x_t, h_part, rnn, j, device, epsilon, A, with_batch=False):
+    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
+    W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
+    b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
+    b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
+    A_ii, A_if, A_ig, A_io = split_by_4(A[f"weight_ih_l{j}"])
+    A_hi, A_hf, A_hg, A_ho = split_by_4(A[f"weight_hh_l{j}"])
+
+    get_shape = lambda w : (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
+
+    pw_ii = A_ii.unsqueeze(0) @ torch.randn(get_shape(W_ii), device=device) * epsilon
+    pw_if = A_if.unsqueeze(0) @ torch.randn(get_shape(W_if), device=device) * epsilon
+    pw_ig = A_ig.unsqueeze(0) @ torch.randn(get_shape(W_ig), device=device) * epsilon
+    pw_io = A_io.unsqueeze(0) @ torch.randn(get_shape(W_io), device=device) * epsilon
+    pw_hi = A_hi.unsqueeze(0) @ torch.randn(get_shape(W_hi), device=device) * epsilon
+    pw_hf = A_hf.unsqueeze(0) @ torch.randn(get_shape(W_hf), device=device) * epsilon
+    pw_hg = A_hg.unsqueeze(0) @ torch.randn(get_shape(W_hg), device=device) * epsilon
+    pw_ho = A_ho.unsqueeze(0) @ torch.randn(get_shape(W_ho), device=device) * epsilon
+    _vb_ii = torch.randn(b_ii.shape, device=device) * epsilon
+    _vb_if = torch.randn(b_if.shape, device=device) * epsilon
+    _vb_ig = torch.randn(b_ig.shape, device=device) * epsilon
+    _vb_io = torch.randn(b_io.shape, device=device) * epsilon
+    _vb_hi = torch.randn(b_hi.shape, device=device) * epsilon
+    _vb_hf = torch.randn(b_hf.shape, device=device) * epsilon
+    _vb_hg = torch.randn(b_hg.shape, device=device) * epsilon
+    _vb_ho = torch.randn(b_ho.shape, device=device) * epsilon
+
+    _vw_ii = torch.matmul(pw_ii, normalize(x_t).unsqueeze(1))
+    _vw_hi = torch.matmul(pw_hi, normalize(h_part).unsqueeze(1))
+    _vw_if = torch.matmul(pw_if, normalize(x_t).unsqueeze(1))
+    _vw_hf = torch.matmul(pw_hf, normalize(h_part).unsqueeze(1))
+    _vw_ig = torch.matmul(pw_ig, normalize(x_t).unsqueeze(1))
+    _vw_hg = torch.matmul(pw_hg, normalize(h_part).unsqueeze(1))
+    _vw_io = torch.matmul(pw_io, normalize(x_t).unsqueeze(1))
+    _vw_ho = torch.matmul(pw_ho, normalize(h_part).unsqueeze(1))
+
+    _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
+    _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
+    _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
+    _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
+
+    return _vw_i, _vw_h, _vb_i, _vb_h
+
+
+def create_new_Vs_mage_binary(x_t, h_part, rnn, j, device, epsilon, with_batch=False):
+    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
+    W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
+    b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
+    b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
+
+    get_shape = lambda w : (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
+
+    pw_ii = torch.randint(0, 2, get_shape(W_ii), dtype=torch.float32, device=device) * 2 - 1
+    pw_if = torch.randint(0, 2, get_shape(W_if), dtype=torch.float32, device=device) * 2 - 1
+    pw_ig = torch.randint(0, 2, get_shape(W_ig), dtype=torch.float32, device=device) * 2 - 1
+    pw_io = torch.randint(0, 2, get_shape(W_io), dtype=torch.float32, device=device) * 2 - 1
+    pw_hi = torch.randint(0, 2, get_shape(W_hi), dtype=torch.float32, device=device) * 2 - 1
+    pw_hf = torch.randint(0, 2, get_shape(W_hf), dtype=torch.float32, device=device) * 2 - 1
+    pw_hg = torch.randint(0, 2, get_shape(W_hg), dtype=torch.float32, device=device) * 2 - 1
+    pw_ho = torch.randint(0, 2, get_shape(W_ho), dtype=torch.float32, device=device) * 2 - 1
+    _vb_ii = torch.randint(0, 2, b_ii.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_if = torch.randint(0, 2, b_if.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_ig = torch.randint(0, 2, b_ig.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_io = torch.randint(0, 2, b_io.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_hi = torch.randint(0, 2, b_hi.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_hf = torch.randint(0, 2, b_hf.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_hg = torch.randint(0, 2, b_hg.shape, dtype=torch.float32, device=device) * 2 - 1
+    _vb_ho = torch.randint(0, 2, b_ho.shape, dtype=torch.float32, device=device) * 2 - 1
 
     _vw_ii = torch.matmul(pw_ii, normalize(x_t).unsqueeze(1))
     _vw_hi = torch.matmul(pw_hi, normalize(h_part).unsqueeze(1))
@@ -265,7 +385,7 @@ def create_new_Vs_mage_all_times(x, hx, rnn, j, device, epsilon):
 
 class RNN(nn.Module):
     def __init__(self, rnn_type, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers,
-                 bidirectional, dropout, pad_idx, train_embedding=True, save_correlations=False):
+                 bidirectional, dropout, pad_idx, train_embedding=True, save_correlations=False, learn_sigmas=False):
         super().__init__()
         self.rnn_type = rnn_type
         self.vocab_size = vocab_size
@@ -321,6 +441,14 @@ class RNN(nn.Module):
         # Setup dropout
         self.drop = nn.Dropout(dropout)
 
+        self.learn_sigmas = learn_sigmas
+        # if self.learn_sigmas:
+        #     self.A = {}
+        #     for j in range(self.rnn.num_layers):
+        #         self.A[f"weight_ih_l{j}"] = torch.eye(self.rnn.__getattr__(f"weight_ih_l{j}").shape[0], requires_grad=True)
+        #         self.A[f"weight_ih_l{j}"] = torch.eye(self.rnn.__getattr__(f"weight_hh_l{j}").shape[0], requires_grad=True)
+        #     self.A["decoder_weight"] = torch.eye(self.decoder.weight.shape[0], requires_grad=True)
+
     def forward(self, batch_text):
         text, text_lengths = batch_text
         # text = [sentence len, batch size]
@@ -375,7 +503,7 @@ class RNN(nn.Module):
 
         return hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded
 
-    def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1, reduce_batch=False, mage_no_batch=False):
+    def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1, reduce_batch=False, mage_no_batch=False, random_binary=False):
         hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
         x = torch.split(input, tuple(batch_sizes))
         device = x[0].device
@@ -428,7 +556,10 @@ class RNN(nn.Module):
                     pass
                     # _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_all_times(x, hx, self.rnn, j, device, epsilon)
                 else:
-                    _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
+                    if not random_binary:
+                        _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
+                    else:
+                        _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_binary(self.rnn, j, device, epsilon)
                     vw_ii, vw_if, vw_ig, vw_io = _vw_i
                     vw_hi, vw_hf, vw_hg, vw_ho = _vw_h
                     vb_ii, vb_if, vb_ig, vb_io = _vb_i
@@ -447,7 +578,12 @@ class RNN(nn.Module):
                         if mage_no_batch:
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_no_batch(x_t, h_part, self.rnn, j, device, epsilon)
                         else:
-                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, device, epsilon, reduce_batch)
+                            if not random_binary:
+                                _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, device,
+                                                                                epsilon, reduce_batch)
+                            else:
+                                _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_binary(x_t, h_part, self.rnn, j, device,
+                                                                                epsilon, reduce_batch)
                         _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
                         _vw_hi, _vw_hf, _vw_hg, _vw_ho = _vw_h
                         _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
@@ -527,7 +663,7 @@ class RNN(nn.Module):
                     dh_t_dW_full_batch = combine_batch(dh_t_dW, dh_t_dW_full_batch)
                     c_t_1 = c_t
 
-                    if (j, seq) in relevant_Vs:
+                    if mage and (j, seq) in relevant_Vs:
                         vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
                         vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
                         vw_if += combine_batch(_vw_if, torch.zeros_like(vw_if))
@@ -580,14 +716,23 @@ class RNN(nn.Module):
 
             if mage:
                 get_shape = lambda w: (w.shape[0], 1) if not reduce_batch else (hidden.shape[0], w.shape[0], 1)
-                pw = torch.randn(get_shape(self.decoder.weight), device=device, dtype=torch.float32) * epsilon
+                if random_binary:
+                    pw = torch.randint(0, 2, get_shape(self.decoder.weight), device=device, dtype=torch.float32) * 2 - 1
+                else:
+                    pw = torch.randn(get_shape(self.decoder.weight), device=device, dtype=torch.float32) * epsilon
                 if mage_no_batch:
                     vw = torch.matmul(pw, normalize(hidden).unsqueeze(1)).mean(dim=0)
                 else:
                     vw = torch.matmul(pw, normalize(hidden).unsqueeze(1))
             else:
-                vw = torch.randn(self.decoder.weight.shape, device=device, dtype=torch.float32) * epsilon
-            vb = torch.randn(self.decoder.bias.shape, device=device, dtype=torch.float32) * epsilon
+                if random_binary:
+                    vw = torch.randint(0, 2, self.decoder.weight.shape, device=device, dtype=torch.float32) * 2 - 1
+                else:
+                    vw = torch.randn(self.decoder.weight.shape, device=device, dtype=torch.float32) * epsilon
+            if random_binary:
+                vb = torch.randint(0, 2, self.decoder.bias.shape, device=device, dtype=torch.float32) * 2 - 1
+            else:
+                vb = torch.randn(self.decoder.bias.shape, device=device, dtype=torch.float32) * epsilon
             new_grad = (hidden.unsqueeze(1) @ torch.transpose(vw, -1, -2)).squeeze() + vb
             grad = torch.matmul(grad, self.decoder.weight.permute(1, 0)).squeeze() + new_grad
 
@@ -612,6 +757,7 @@ class RNN(nn.Module):
             if mage and reduce_batch:
                 apply_fwd_grad = apply_fwd_grad_reduce_batch
 
+
             for i in range(self.rnn.num_layers):
                 for w in [self.rnn.__getattr__(f"weight_ih_l{i}"),
                           self.rnn.__getattr__(f"weight_hh_l{i}"),
@@ -621,15 +767,24 @@ class RNN(nn.Module):
                         w.grad = torch.zeros_like(w)
 
                 vw_ih, vw_hh, vb_ih, vb_hh = V[i]
-                self.rnn.__getattr__(f"weight_ih_l{i}").grad += apply_fwd_grad(dFg, vw_ih) / grad_div
-                self.rnn.__getattr__(f"weight_hh_l{i}").grad += apply_fwd_grad(dFg, vw_hh) / grad_div
+                if not self.learn_sigmas:
+                    self.rnn.__getattr__(f"weight_ih_l{i}").grad += apply_fwd_grad(dFg, vw_ih) / grad_div
+                    self.rnn.__getattr__(f"weight_hh_l{i}").grad += apply_fwd_grad(dFg, vw_hh) / grad_div
+                else:
+                    pass
+                    # self.rnn.__getattr__(f"weight_ih_l{i}").grad += invert_sigma(self.A[f"weight_ih_l{i}"]) @ apply_fwd_grad(dFg, vw_ih) / grad_div
+                    # self.rnn.__getattr__(f"weight_hh_l{i}").grad += invert_sigma(self.A[f"weight_ih_l{i}"]) @ apply_fwd_grad(dFg, vw_hh) / grad_div
                 self.rnn.__getattr__(f"bias_ih_l{i}").grad += apply_fwd_grad(dFg, vb_ih) / grad_div
                 self.rnn.__getattr__(f"bias_hh_l{i}").grad += apply_fwd_grad(dFg, vb_hh) / grad_div
             if self.decoder.weight.grad is None:
                 self.decoder.weight.grad = torch.zeros_like(self.decoder.weight)
             if self.decoder.bias.grad is None:
                 self.decoder.bias.grad = torch.zeros_like(self.decoder.bias)
-            self.decoder.weight.grad += apply_fwd_grad(dFg, vw) / grad_div
+            if not self.learn_sigmas:
+                self.decoder.weight.grad += apply_fwd_grad(dFg, vw) / grad_div
+            else:
+                pass
+                # self.decoder.weight.grad += invert_sigma(self.A[f"decoder_weight"]) @ apply_fwd_grad(dFg, vw) / grad_div
             self.decoder.bias.grad += apply_fwd_grad(dFg, vb) / grad_div
 
         return decoded

@@ -15,7 +15,7 @@ from torchtext import data
 from torchtext import datasets
 from tqdm import tqdm
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from model_LSTM import RNN
 
@@ -382,7 +382,7 @@ def train(model, iterator, optimizer, criterion):
     for batch in tqdm(iterator):
         optimizer.zero_grad()
         for _ in range(times_to_fwd_grad):
-            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad, True, False)
+            predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad, False, False, True)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)
         acc = accuracy(predictions, batch.label)
