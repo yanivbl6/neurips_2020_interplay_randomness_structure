@@ -69,11 +69,17 @@ parser.add_argument('--save-corr', action='store_true', default=False,
 parser.add_argument('--reduce-batch', action='store_true', default=False,
                     help='average on the batch dimension on Mage')
 
+parser.add_argument('--reduce-batch-biases', action='store_true', default=False,
+                    help='average on the batch dimension on Mage for biases as well')
+
 parser.add_argument('--batched-mage', action='store_true', default=False,
                     help='average on the batch dimension on activations for Mage')
 
 parser.add_argument('--binary', action='store_true', default=False,
                     help='use binary random instead of gaussian')
+
+parser.add_argument('--vanilla-biases', action='store_true', default=False,
+                    help='use the same random for all time steps for the biases')
 
 parser.add_argument('--gpu', default=0, type=int,
                     help='which GPU to use')
@@ -461,7 +467,12 @@ def train(model, iterator, optimizer, criterion):
         optimizer.zero_grad()
         if args.use_fwd:
             for _ in range(args.num_directions):
-                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions, args.reduce_batch, args.batched_mage, args.binary)
+                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions,
+                                             reduce_batch=args.reduce_batch,
+                                             mage_no_batch=args.batched_mage,
+                                             random_binary=args.binary,
+                                             reduce_batch_biases=args.reduce_batch_biases,
+                                             vanilla_biases=args.vanilla_biases)
             if model.save_correlations:
                 input_corr_matrices.append(model.input_correlation_matrix)
                 output_corr_matrices.append(model.output_correlation_matrix)
