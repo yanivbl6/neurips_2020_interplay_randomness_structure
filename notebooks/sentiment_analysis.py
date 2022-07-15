@@ -10,8 +10,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
-from torchtext import data
-from torchtext import datasets
+from torchtext.legacy import data
+from torchtext.legacy import datasets
 from tqdm import tqdm
 
 import wandb
@@ -38,6 +38,9 @@ parser.add_argument('-d', '--num-directions', default=10, type=int,
                     help='number of directions to average on in forward mode (default: 10)')
 
 parser.add_argument('--rnn-type', type=str, default="LSTM", help='Type of RNN (default: LSTM)')
+
+parser.add_argument('--name', type=str, default="", help='network name')
+
 
 parser.add_argument('--emb-dim', default=50, type=int,
                     help='embedding dimension [50, 100, 200, 300]')
@@ -84,8 +87,28 @@ parser.add_argument('--vanilla-biases', action='store_true', default=False,
 parser.add_argument('--gpu', default=0, type=int,
                     help='which GPU to use')
 
+parser.add_argument('-t','--trunc', default=-1, type=int,
+                    help='which GPU to use')
+
+
+parser.add_argument('--pretrained', default="", type=str,
+                    help='pretrained model')
+
+parser.add_argument('--ig', default=-1.0, type=float,
+                    help='weight decay (default: 0)')
+
 
 args = parser.parse_args()
+
+
+args.use_ig = args.ig > 0
+
+if args.use_ig:
+    args.use_mage = True
+    
+if args.use_mage:
+    args.use_fwd = True
+
 RNN_TYPE = args.rnn_type
 EMB_DIM = args.emb_dim
 HIDDEN_DIM = args.hidden_dim
@@ -98,7 +121,9 @@ SAVE_CORR = args.save_corr
 
 
 
-os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+
+
+##os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from model_LSTM import RNN
 
@@ -205,8 +230,13 @@ model_name = (DATASET.lower()
               + dropout_str
               + weight_decay_str
               + '_seed_%d' % SEED)
+
+if not args.name == "":
+    model_name = args.name
+
 model_name += '.pt'
 SAVE = os.path.join(model_dir, model_name)
+
 print("Will save model to \n  '%s'" % SAVE)
 
 # %%
@@ -313,7 +343,7 @@ PAD_IDX = TEXT.vocab.stoi[TEXT.pad_token]
 
 # Instantiate
 model = RNN(RNN_TYPE, INPUT_DIM, EMB_DIM, HIDDEN_DIM, OUTPUT_DIM, N_LAYERS,
-            BIDIRECTIONAL, DROPOUT, PAD_IDX, TRAIN_EMB, SAVE_CORR)
+            BIDIRECTIONAL, DROPOUT, PAD_IDX, TRAIN_EMB, SAVE_CORR, args.trunc)
 
 
 def count_parameters(model):
@@ -397,6 +427,15 @@ else:
     a = 1. / np.sqrt(model.embedding_dim)
     model.rnn.weight_ih_l0.data.uniform_(-a, a)
 
+
+if not args.pretrained  == "":
+    print(f"Loading model: {os.path.join(model_dir, args.pretrained)}")
+    with open(os.path.join(model_dir, args.pretrained), 'rb') as f:
+        checkpoint = torch.load(f)
+        state_dict = checkpoint['state_dict_final']
+    model.load_state_dict(state_dict)
+
+
 # Save the initial model connectivity
 state_dict_init = copy.deepcopy(model.state_dict())
 
@@ -465,9 +504,35 @@ def train(model, iterator, optimizer, criterion):
     output_corr_matrices = []
     for batch in tqdm(iterator):
         optimizer.zero_grad()
-        if args.use_fwd:
+
+        if args.use_ig:
+            predictions = model(batch.text)
+            loss = criterion(predictions, batch.label)
+            acc = accuracy(predictions, batch.label)
+            loss.backward()
+
+            guess = model.rnn.pop_guess()
+            optimizer.zero_grad()
+
+
             for _ in range(args.num_directions):
-                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions,
+                predictions = model.fwd_mode(batch.text, batch.label, criterion, True, guess, args.ig, args.num_directions,
+                                             reduce_batch=args.reduce_batch,
+                                             mage_no_batch=args.batched_mage,
+                                             random_binary=args.binary,
+                                             reduce_batch_biases=args.reduce_batch_biases,
+                                             vanilla_biases=args.vanilla_biases)
+            if model.save_correlations:
+                input_corr_matrices.append(model.input_correlation_matrix)
+                output_corr_matrices.append(model.output_correlation_matrix)
+                
+            loss = criterion(predictions, batch.label)
+            acc = accuracy(predictions, batch.label)
+
+
+        elif args.use_fwd:
+            for _ in range(args.num_directions):
+                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, None, -1.0 , args.num_directions,
                                              reduce_batch=args.reduce_batch,
                                              mage_no_batch=args.batched_mage,
                                              random_binary=args.binary,
@@ -483,7 +548,9 @@ def train(model, iterator, optimizer, criterion):
             predictions = model(batch.text)
             loss = criterion(predictions, batch.label)
             acc = accuracy(predictions, batch.label)
+
             loss.backward()
+
 
         optimizer.step()
         epoch_loss += loss.item()
@@ -491,6 +558,7 @@ def train(model, iterator, optimizer, criterion):
     if model.save_correlations:
         corr_mats = (corr_mat_w_mismatching_dims(input_corr_matrices),
                      corr_mat_w_mismatching_dims(output_corr_matrices))
+
     return epoch_loss / len(iterator), epoch_acc / len(iterator), corr_mats
 
 
@@ -500,6 +568,7 @@ def evaluate(model, iterator, criterion):
     model.eval()
     with torch.no_grad():
         for batch in iterator:
+
             predictions = model(batch.text)
             loss = criterion(predictions, batch.label)
             acc = accuracy(predictions, batch.label)
@@ -528,6 +597,12 @@ if not args.no_wandb:
 best_valid_loss = float('inf')
 train_losses, valid_losses = np.zeros((2, N_EPOCHS))
 loss_acc = np.zeros((N_EPOCHS, 4))
+
+valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
+
+print(f'Epoch: 0 | Epoch Time: N/A')
+print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc * 100:.2f}%')
+
 for epoch in range(N_EPOCHS):
     start_time = time.time()
     train_loss, train_acc, corr_mats = train(model, train_iterator, optimizer, criterion)
