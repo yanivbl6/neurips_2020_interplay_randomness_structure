@@ -143,7 +143,7 @@ print("Will save model to \n  '%s'" % SAVE)
 # Define how the dataset is split.
 # Tokenize = act of splitting the string into discrete 'tokens'.
 # Include length for packed padded sequences
-TEXT = data.Field(tokenize='spacy', include_lengths=True)
+TEXT = torchtext.legacy.data.Field(tokenize='spacy', include_lengths=True)
 if BINARY_LABELS:
     LABEL = data.LabelField(dtype=torch.float)
 else:
@@ -1060,7 +1060,7 @@ print("Will save model to \n  '%s'" % SAVE)
 # Define how the dataset is split.
 # Tokenize = act of splitting the string into discrete 'tokens'.
 # Include length for packed padded sequences
-TEXT = data.Field(tokenize ='spacy', include_lengths=True)
+TEXT = torchtext.legacy.data.Field(tokenize ='spacy', include_lengths=True)
 if BINARY_LABELS:
     LABEL = data.LabelField(dtype=torch.float)
 else:
