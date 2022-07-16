@@ -17,7 +17,7 @@ from tqdm import tqdm
 import wandb
 
 import argparse
-
+import math
 
 
 
@@ -41,6 +41,7 @@ parser.add_argument('--rnn-type', type=str, default="LSTM", help='Type of RNN (d
 
 parser.add_argument('--name', type=str, default="", help='network name')
 
+parser.add_argument('--scheduler', type=str, default="", help='scheduler')
 
 parser.add_argument('--emb-dim', default=50, type=int,
                     help='embedding dimension [50, 100, 200, 300]')
@@ -458,6 +459,13 @@ lr0 = args.lr
 lr = lr0 / HIDDEN_DIM
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
 
+if args.scheduler.lower() == "steplr":
+    n_phases = 5
+    gamma = math.pow(0.1, 1.0/(n_phases-1))
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size= args.epochs/n_phases, gamma = gamma )
+else:
+    scheduler = None
+
 if BINARY_LABELS:
     # Binary cross-entropy loss with logits
     criterion = nn.BCEWithLogitsLoss().to(device)
@@ -612,6 +620,11 @@ for epoch in range(N_EPOCHS):
     # Save losses and accuracy
     loss_acc[epoch] = train_loss, valid_loss, train_acc, valid_acc
 
+
+    if not args.scheduler is None:
+        scheduler.step()
+
+    lr_sample = optimizer.param_groups[0]['lr']
     # # Save the best model so far
     # if valid_loss < best_valid_loss:
     #     best_valid_loss = valid_loss
@@ -634,6 +647,7 @@ for epoch in range(N_EPOCHS):
                    "Validation Loss": valid_loss,
                    "Train Acc": train_acc * 100,
                    "Validation Acc": valid_acc * 100,
+                   "Learning Rate": lr_sample,
                    f"inputs correlation matrix": figs["inputs"],
                    f"outputs correlation matrix": figs["outputs"]})
         else:
@@ -641,7 +655,8 @@ for epoch in range(N_EPOCHS):
                        "Train Loss": train_loss,
                        "Validation Loss": valid_loss,
                        "Train Acc": train_acc * 100,
-                       "Validation Acc": valid_acc * 100,})
+                       "Validation Acc": valid_acc * 100,
+                       "Learning Rate": lr_sample})
 
     if (epoch + 1) % show_step == 0 or epoch == 0:
         print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
