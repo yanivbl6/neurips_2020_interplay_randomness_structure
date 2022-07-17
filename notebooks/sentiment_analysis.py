@@ -81,6 +81,12 @@ parser.add_argument('--binary', action='store_true', default=False,
 parser.add_argument('--vanilla-biases', action='store_true', default=False,
                     help='use the same random for all time steps for the biases')
 
+parser.add_argument('--random-t-separately', action='store_true', default=False,
+                    help='use different gaussian to decorrelate t')
+
+parser.add_argument('--fwd-V-per-timestep', action='store_true', default=False,
+                    help='use a different V for each timestep')
+
 parser.add_argument('--gpu', default=0, type=int,
                     help='which GPU to use')
 
@@ -472,7 +478,9 @@ def train(model, iterator, optimizer, criterion):
                                              mage_no_batch=args.batched_mage,
                                              random_binary=args.binary,
                                              reduce_batch_biases=args.reduce_batch_biases,
-                                             vanilla_biases=args.vanilla_biases)
+                                             vanilla_biases=args.vanilla_biases,
+                                             vanilla_V_per_timestep=args.fwd_V_per_timestep,
+                                             random_t_separately=args.random_t_separately)
             if model.save_correlations:
                 input_corr_matrices.append(model.input_correlation_matrix)
                 output_corr_matrices.append(model.output_correlation_matrix)
