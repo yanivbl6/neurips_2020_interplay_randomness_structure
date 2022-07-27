@@ -9,20 +9,9 @@ def normalize(x):
     return x / (x.norm(dim=-1, keepdim=True) + eps)
 
 
-def invert_sigma(A):
-    eps = 1E-8
-    return torch.linalg.inv(A.T @ A + eps * torch.eye(A.shape[0]))
-
-
 def split_by_4(x):
     return torch.split(x, x.shape[0] // 4)
 
-
-def combine_batch(new, old):
-    if new.shape == old.shape:
-        return new
-    b = new.shape[0]
-    return torch.cat([new, torch.zeros_like(old[b:])], dim=0) + torch.cat([torch.zeros_like(old[:b]), old[b:]], dim=0)
 
 def apply_fwd_grad_no_batch(dFg, vw):
     return dFg * vw
@@ -39,12 +28,6 @@ def apply_fwd_grad_reduce_batch(dFg, vw):
 def apply_fwd_grad_reduce_batch_w_biases(dFg, vw):
     return dFg.sum() * vw.mean(dim=0)
 
-def compute_corr_matrix(padded_activations, batch_sizes):
-    norms = torch.norm(padded_activations[0], dim=-1).unsqueeze(-1)
-    corr_matrices = padded_activations[0] @ padded_activations[0].transpose(-2, -1) / (1e-8 + norms @ norms.transpose(-2, -1))
-    seqs_in_batch = (batch_sizes.unsqueeze(1) @ torch.ones_like(batch_sizes).unsqueeze(0)).to(corr_matrices.device)
-    seqs_in_batch = torch.min(seqs_in_batch, seqs_in_batch.T)
-    return torch.sum(corr_matrices / seqs_in_batch.unsqueeze(0), dim=0)
 
 def create_new_Vs(rnn, j, device, epsilon):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
@@ -180,49 +163,6 @@ def create_new_Vs_mage(x_t, h_part, rnn, j, device, epsilon, with_batch=False, w
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
-# def create_new_Vs_mage_learn_sigmas(x_t, h_part, rnn, j, device, epsilon, A, with_batch=False):
-#     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
-#     W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
-#     b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
-#     b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
-#     A_ii, A_if, A_ig, A_io = split_by_4(A[f"weight_ih_l{j}"])
-#     A_hi, A_hf, A_hg, A_ho = split_by_4(A[f"weight_hh_l{j}"])
-#
-#     get_shape = lambda w : (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
-#
-#     pw_ii = A_ii.unsqueeze(0) @ torch.randn(get_shape(W_ii), device=device) * epsilon
-#     pw_if = A_if.unsqueeze(0) @ torch.randn(get_shape(W_if), device=device) * epsilon
-#     pw_ig = A_ig.unsqueeze(0) @ torch.randn(get_shape(W_ig), device=device) * epsilon
-#     pw_io = A_io.unsqueeze(0) @ torch.randn(get_shape(W_io), device=device) * epsilon
-#     pw_hi = A_hi.unsqueeze(0) @ torch.randn(get_shape(W_hi), device=device) * epsilon
-#     pw_hf = A_hf.unsqueeze(0) @ torch.randn(get_shape(W_hf), device=device) * epsilon
-#     pw_hg = A_hg.unsqueeze(0) @ torch.randn(get_shape(W_hg), device=device) * epsilon
-#     pw_ho = A_ho.unsqueeze(0) @ torch.randn(get_shape(W_ho), device=device) * epsilon
-#     _vb_ii = torch.randn(b_ii.shape, device=device) * epsilon
-#     _vb_if = torch.randn(b_if.shape, device=device) * epsilon
-#     _vb_ig = torch.randn(b_ig.shape, device=device) * epsilon
-#     _vb_io = torch.randn(b_io.shape, device=device) * epsilon
-#     _vb_hi = torch.randn(b_hi.shape, device=device) * epsilon
-#     _vb_hf = torch.randn(b_hf.shape, device=device) * epsilon
-#     _vb_hg = torch.randn(b_hg.shape, device=device) * epsilon
-#     _vb_ho = torch.randn(b_ho.shape, device=device) * epsilon
-#
-#     _vw_ii = torch.matmul(pw_ii, normalize(x_t).unsqueeze(1))
-#     _vw_hi = torch.matmul(pw_hi, normalize(h_part).unsqueeze(1))
-#     _vw_if = torch.matmul(pw_if, normalize(x_t).unsqueeze(1))
-#     _vw_hf = torch.matmul(pw_hf, normalize(h_part).unsqueeze(1))
-#     _vw_ig = torch.matmul(pw_ig, normalize(x_t).unsqueeze(1))
-#     _vw_hg = torch.matmul(pw_hg, normalize(h_part).unsqueeze(1))
-#     _vw_io = torch.matmul(pw_io, normalize(x_t).unsqueeze(1))
-#     _vw_ho = torch.matmul(pw_ho, normalize(h_part).unsqueeze(1))
-#
-#     _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
-#     _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
-#     _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
-#     _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
-#
-#     return _vw_i, _vw_h, _vb_i, _vb_h
-
 
 def create_new_Vs_mage_binary(x_t, h_part, rnn, j, device, epsilon, with_batch=False):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
@@ -306,108 +246,6 @@ def create_new_Vs_mage_no_batch(x_t, h_part, rnn, j, device, epsilon):
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
-def create_new_Vs_mage_all_times(x, hx, rnn, j, device, epsilon):
-    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
-    W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
-    b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
-    b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
-
-    relevant_Vs = [(j, seq) for j in range(rnn.num_layers) for seq in range(len(x))]
-    with torch.no_grad():
-        h, c_t_1 = hx[j] if hx[0].shape[0] > 1 else (hx[0][0], hx[1][0])
-        h_list = [h]
-        h_full_batch = torch.zeros_like(h)
-
-        vw_ii = torch.zeros([x[0].shape[0]] + list(W_ii.shape)).to(device)
-        vw_hi = torch.zeros([x[0].shape[0]] + list(W_hi.shape)).to(device)
-        vw_if = torch.zeros([x[0].shape[0]] + list(W_if.shape)).to(device)
-        vw_hf = torch.zeros([x[0].shape[0]] + list(W_hf.shape)).to(device)
-        vw_ig = torch.zeros([x[0].shape[0]] + list(W_ig.shape)).to(device)
-        vw_hg = torch.zeros([x[0].shape[0]] + list(W_hg.shape)).to(device)
-        vw_io = torch.zeros([x[0].shape[0]] + list(W_io.shape)).to(device)
-        vw_ho = torch.zeros([x[0].shape[0]] + list(W_ho.shape)).to(device)
-        vb_ii = torch.zeros_like(b_ii).to(device)
-        vb_hi = torch.zeros_like(b_hi).to(device)
-        vb_if = torch.zeros_like(b_if).to(device)
-        vb_hf = torch.zeros_like(b_hf).to(device)
-        vb_ig = torch.zeros_like(b_ig).to(device)
-        vb_hg = torch.zeros_like(b_hg).to(device)
-        vb_io = torch.zeros_like(b_io).to(device)
-        vb_ho = torch.zeros_like(b_ho).to(device)
-
-        for seq in range(len(x)):
-            x_t = x[seq]
-            h_part = h[:x_t.shape[0]]
-            c_t_1 = c_t_1[:x_t.shape[0]]
-
-            pw_ii = torch.randn((W_ii.shape[0], 1), device=device) * epsilon
-            pw_if = torch.randn((W_if.shape[0], 1), device=device) * epsilon
-            pw_ig = torch.randn((W_ig.shape[0], 1), device=device) * epsilon
-            pw_io = torch.randn((W_io.shape[0], 1), device=device) * epsilon
-            pw_hi = torch.randn((W_hi.shape[0], 1), device=device) * epsilon
-            pw_hf = torch.randn((W_hf.shape[0], 1), device=device) * epsilon
-            pw_hg = torch.randn((W_hg.shape[0], 1), device=device) * epsilon
-            pw_ho = torch.randn((W_ho.shape[0], 1), device=device) * epsilon
-            _vb_ii = torch.randn(b_ii.shape, device=device) * epsilon
-            _vb_if = torch.randn(b_if.shape, device=device) * epsilon
-            _vb_ig = torch.randn(b_ig.shape, device=device) * epsilon
-            _vb_io = torch.randn(b_io.shape, device=device) * epsilon
-            _vb_hi = torch.randn(b_hi.shape, device=device) * epsilon
-            _vb_hf = torch.randn(b_hf.shape, device=device) * epsilon
-            _vb_hg = torch.randn(b_hg.shape, device=device) * epsilon
-            _vb_ho = torch.randn(b_ho.shape, device=device) * epsilon
-
-
-            i_p = x_t @ W_ii.T + b_ii + h_part @ W_hi.T + b_hi
-            i = torch.sigmoid(i_p)
-            f_p = x_t @ W_if.T + b_if + h_part @ W_hf.T + b_hf
-            f = torch.sigmoid(f_p)
-            g_p = x_t @ W_ig.T + b_ig + h_part @ W_hg.T + b_hg
-            g = torch.tanh(g_p)
-            o_p = x_t @ W_io.T + b_io + h_part @ W_ho.T + b_ho
-            o = torch.sigmoid(o_p)
-            c_t = f * c_t_1 + i * g
-            tanh_c_t = torch.tanh(c_t)
-            h = o * tanh_c_t
-
-            _vw_ii = torch.matmul(pw_ii, normalize(x_t).unsqueeze(1))
-            _vw_hi = torch.matmul(pw_hi, normalize(h_part).unsqueeze(1))
-            _vw_if = torch.matmul(pw_if, normalize(x_t).unsqueeze(1))
-            _vw_hf = torch.matmul(pw_hf, normalize(h_part).unsqueeze(1))
-            _vw_ig = torch.matmul(pw_ig, normalize(x_t).unsqueeze(1))
-            _vw_hg = torch.matmul(pw_hg, normalize(h_part).unsqueeze(1))
-            _vw_io = torch.matmul(pw_io, normalize(x_t).unsqueeze(1))
-            _vw_ho = torch.matmul(pw_ho, normalize(h_part).unsqueeze(1))
-
-            h_list.append(h)
-            h_full_batch = combine_batch(h, h_full_batch)
-            c_t_1 = c_t
-
-            if (j, seq) in relevant_Vs:
-                vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
-                vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
-                vw_if += combine_batch(_vw_if, torch.zeros_like(vw_if))
-                vw_hf += combine_batch(_vw_hf, torch.zeros_like(vw_hf))
-                vw_ig += combine_batch(_vw_ig, torch.zeros_like(vw_ig))
-                vw_hg += combine_batch(_vw_hg, torch.zeros_like(vw_hg))
-                vw_io += combine_batch(_vw_io, torch.zeros_like(vw_io))
-                vw_ho += combine_batch(_vw_ho, torch.zeros_like(vw_ho))
-                vb_ii += _vb_ii
-                vb_hi += _vb_hi
-                vb_if += _vb_if
-                vb_hf += _vb_hf
-                vb_ig += _vb_ig
-                vb_hg += _vb_hg
-                vb_io += _vb_io
-                vb_ho += _vb_ho
-
-    vw_i = (vw_ii, vw_if, vw_ig, vw_io)
-    vw_h = (vw_hi, vw_hf, vw_hg, vw_ho)
-    vb_i = (vb_ii, vb_if, vb_ig, vb_io)
-    vb_h = (vb_hi, vb_hf, vb_hg, vb_ho)
-
-    return vw_i, vw_h, vb_i, vb_h
-
 
 class RNN(nn.Module):
     def __init__(self, rnn_type, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers,
@@ -474,15 +312,15 @@ class RNN(nn.Module):
         # embedded = [sent len, batch size, emb dim]
 
         # Pack sequence
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths)
+        # packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths)
         if self.rnn_type == 'LSTM':
-            packed_output, (hidden, cell) = self.rnn(packed_embedded)
+            packed_output, (hidden, cell) = self.rnn(embedded)
         else:
-            packed_output, hidden = self.rnn(packed_embedded)
+            packed_output, hidden = self.rnn(embedded)
         # hidden = [num layers * num directions, batch size, hid dim]
         # cell = [num layers * num directions, batch size, hid dim]
         # Unpack sequence
-        output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output)
+        # output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output)
         # output = [sentence len, batch size, hid dim * num directions]
 
         # Concatenate the final hidden layers (for bidirectional)
@@ -506,29 +344,28 @@ class RNN(nn.Module):
         # embedded = [sent len, batch size, emb dim]
 
         # Pack sequence
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths)
+        # packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, text_lengths)
 
-        if isinstance(packed_embedded, PackedSequence):
-            input, batch_sizes, sorted_indices, unsorted_indices = packed_embedded
-            max_batch_size = batch_sizes[0]
-            max_batch_size = int(max_batch_size)
+        # if isinstance(packed_embedded, PackedSequence):
+        #     input, batch_sizes, sorted_indices, unsorted_indices = packed_embedded
+        #     max_batch_size = batch_sizes[0]
+        #     max_batch_size = int(max_batch_size)
+
         num_directions = 2 if self.rnn.bidirectional else 1
         zeros = torch.zeros(self.rnn.num_layers * num_directions,
-                            max_batch_size, self.rnn.hidden_size,
-                            dtype=input.dtype, device=input.device)
+                            embedded.shape[1], self.rnn.hidden_size,
+                            dtype=embedded.dtype, device=embedded.device)
         hx = (zeros, zeros)
-        self.rnn.check_forward_args(input, hx, batch_sizes)
+        # self.rnn.check_forward_args(input, hx, batch_sizes)
 
-        return hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded
+        return hx, embedded
 
     def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1, reduce_batch=False, mage_no_batch=False,
                  random_binary=False, reduce_batch_biases=False, vanilla_biases=False, vanilla_V_per_timestep=False,
                  random_t_separately=False):
-        hx, input, batch_sizes, sorted_indices, unsorted_indices, packed_embedded = self.batch_text_to_input(batch_text)
-        x = torch.split(input, tuple(batch_sizes))
-        device = x[0].device
-        if self.save_correlations:
-            self.input_correlation_matrix = compute_corr_matrix(torch.nn.utils.rnn.pad_packed_sequence(packed_embedded, batch_first=True), batch_sizes)
+        hx, embedding = self.batch_text_to_input(batch_text)
+        x = embedding
+        device = x.device
         epsilon = 1
         V = {}
         grad = 0
@@ -609,8 +446,7 @@ class RNN(nn.Module):
 
                 for seq in range(len(x)):
                     x_t = x[seq]
-                    h_part = h[:x_t.shape[0]]
-                    c_t_1 = c_t_1[:x_t.shape[0]]
+                    h_part = h
                     dz_dW = z_grad_list[seq] if j > 0 else None
                     if vanilla_V_per_timestep:
                         _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
@@ -644,7 +480,7 @@ class RNN(nn.Module):
                               (dz_dW @ W_ii.T if dz_dW is not None else 0) + \
                               _vb_ii + \
                               (h_part.unsqueeze(1) @ torch.transpose(_vw_hi, -1, -2)).squeeze(1) + \
-                              (dh_t_dW[:x_t.shape[0]] @ W_hi.T if dh_t_dW is not None else 0) + \
+                              (dh_t_dW @ W_hi.T if dh_t_dW is not None else 0) + \
                               _vb_hi
                     i = torch.sigmoid(i_p)
                     di_dW = (i * (1 - i)) * di_p_dW
@@ -654,7 +490,7 @@ class RNN(nn.Module):
                               (dz_dW @ W_if.T if dz_dW is not None else 0) + \
                               _vb_if + \
                               (h_part.unsqueeze(1) @ torch.transpose(_vw_hf, -1, -2)).squeeze(1) + \
-                              (dh_t_dW[:x_t.shape[0]] @ W_hf.T if dh_t_dW is not None else 0) + \
+                              (dh_t_dW @ W_hf.T if dh_t_dW is not None else 0) + \
                               _vb_hf
                     f = torch.sigmoid(f_p)
                     df_dW = (f * (1 - f)) * df_p_dW
@@ -665,7 +501,7 @@ class RNN(nn.Module):
                               (dz_dW @ W_ig.T if dz_dW is not None else 0) + \
                               _vb_ig + \
                               (h_part.unsqueeze(1) @ torch.transpose(_vw_hg, -1, -2)).squeeze(1) + \
-                              (dh_t_dW[:x_t.shape[0]] @ W_hg.T if dh_t_dW is not None else 0) + \
+                              (dh_t_dW @ W_hg.T if dh_t_dW is not None else 0) + \
                               _vb_hg
                     g = torch.tanh(g_p)
                     dg_dW = (1 - g ** 2) * dg_p_dW
@@ -675,13 +511,13 @@ class RNN(nn.Module):
                               (dz_dW @ W_io.T if dz_dW is not None else 0) + \
                               _vb_io + \
                               (h_part.unsqueeze(1) @ torch.transpose(_vw_ho, -1, -2)).squeeze(1) + \
-                              (dh_t_dW[:x_t.shape[0]] @ W_ho.T if dh_t_dW is not None else 0) + \
+                              (dh_t_dW @ W_ho.T if dh_t_dW is not None else 0) + \
                               _vb_ho
                     o = torch.sigmoid(o_p)
                     do_dW = (o * (1 - o)) * do_p_dW
 
                     c_t = f * c_t_1 + i * g
-                    dc_dW = df_dW * c_t_1 + (dc_dW[:x_t.shape[0]] * f if dc_dW is not None else 0) + di_dW * g + dg_dW * i
+                    dc_dW = df_dW * c_t_1 + (dc_dW * f if dc_dW is not None else 0) + di_dW * g + dg_dW * i
 
                     tanh_c_t = torch.tanh(c_t)
                     d_tanh_c_t_dW = dc_dW * (1 - tanh_c_t ** 2)
@@ -690,23 +526,20 @@ class RNN(nn.Module):
                     dh_t_dW = do_dW * tanh_c_t + d_tanh_c_t_dW * o
 
                     h_list.append(h)
-                    h_full_batch = combine_batch(h, h_full_batch)
+                    # h_full_batch = combine_batch(h, h_full_batch)
                     h_grad_list.append(dh_t_dW)
-                    dh_t_dW_full_batch = combine_batch(dh_t_dW, dh_t_dW_full_batch)
                     c_t_1 = c_t
 
                     if (mage or vanilla_V_per_timestep) and (j, seq) in relevant_Vs:
-                        vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
-                        vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
-                        vw_if += combine_batch(_vw_if, torch.zeros_like(vw_if))
-                        vw_hf += combine_batch(_vw_hf, torch.zeros_like(vw_hf))
-                        vw_ig += combine_batch(_vw_ig, torch.zeros_like(vw_ig))
-                        vw_hg += combine_batch(_vw_hg, torch.zeros_like(vw_hg))
-                        vw_io += combine_batch(_vw_io, torch.zeros_like(vw_io))
-                        vw_ho += combine_batch(_vw_ho, torch.zeros_like(vw_ho))
-                        if vanilla_biases:
-                            pass
-                        elif not reduce_batch_biases:
+                        vw_ii += _vw_ii
+                        vw_hi += _vw_hi
+                        vw_if += _vw_if
+                        vw_hf += _vw_hf
+                        vw_ig += _vw_ig
+                        vw_hg += _vw_hg
+                        vw_io += _vw_io
+                        vw_ho += _vw_ho
+                        if not vanilla_biases:
                             vb_ii += _vb_ii
                             vb_hi += _vb_hi
                             vb_if += _vb_if
@@ -715,42 +548,24 @@ class RNN(nn.Module):
                             vb_hg += _vb_hg
                             vb_io += _vb_io
                             vb_ho += _vb_ho
-                        else:
-                            vb_ii += combine_batch(_vb_ii, torch.zeros_like(vb_ii))
-                            vb_hi += combine_batch(_vb_hi, torch.zeros_like(vb_hi))
-                            vb_if += combine_batch(_vb_if, torch.zeros_like(vb_if))
-                            vb_hf += combine_batch(_vb_hf, torch.zeros_like(vb_hf))
-                            vb_ig += combine_batch(_vb_ig, torch.zeros_like(vb_ig))
-                            vb_hg += combine_batch(_vb_hg, torch.zeros_like(vb_hg))
-                            vb_io += combine_batch(_vb_io, torch.zeros_like(vb_io))
-                            vb_ho += combine_batch(_vb_ho, torch.zeros_like(vb_ho))
-
-
                             # todo: add dropout as in nn.LSTM
-                x = tuple(h_list[1:])
-                z_grad_list = h_grad_list
+
+                x = torch.stack(h_list[1:], dim=0)
+                z_grad_list = torch.stack(h_grad_list, dim=0)
                 vw_ih = torch.cat([vw_ii, vw_if, vw_ig, vw_io], dim=-2)
                 vw_hh = torch.cat([vw_hi, vw_hf, vw_hg, vw_ho], dim=-2)
                 vb_ih = torch.cat([vb_ii, vb_if, vb_ig, vb_io], dim=-1)
                 vb_hh = torch.cat([vb_hi, vb_hf, vb_hg, vb_ho], dim=-1)
                 V[j] = (vw_ih, vw_hh, vb_ih, vb_hh)
-                h_stack.append(h_full_batch)
+                h_stack.append(h)
                 c_stack.append(c_t)
 
-            grad = dh_t_dW_full_batch
+            grad = dh_t_dW
 
         with torch.no_grad():
-            packed_output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.zeros_like(c_stack[0]))
+            packed_output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.stack(h_stack, dim=0))
 
-            self.rnn.permute_hidden(hidden, unsorted_indices)
-
-            if self.save_correlations:
-                padded = torch.nn.utils.rnn.pad_packed_sequence(torch.nn.utils.rnn.PackedSequence(torch.cat(h_list, dim=0),
-                                                                                                  batch_sizes=batch_sizes,
-                                                                                                  sorted_indices=sorted_indices,
-                                                                                                  unsorted_indices=unsorted_indices),
-                                                                batch_first=True)
-                self.output_correlation_matrix = compute_corr_matrix(padded, batch_sizes)
+            self.rnn.permute_hidden(hidden, None)
 
             hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
                 (-1, self.hidden_dim * self.n_directions))
