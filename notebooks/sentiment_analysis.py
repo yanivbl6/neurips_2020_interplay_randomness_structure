@@ -10,8 +10,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
-from torchtext.legacy import data
-from torchtext.legacy import datasets
+from torchtext import data
+from torchtext import datasets
 from tqdm import tqdm
 
 import wandb
@@ -85,10 +85,13 @@ parser.add_argument('--vanilla-biases', action='store_true', default=False,
                     help='use the same random for all time steps for the biases')
 
 parser.add_argument('--random-t-separately', action='store_true', default=False,
-                    help='use different gaussian to decorrelate t')
+                    help='use different random to decorrelate t')
 
 parser.add_argument('--fwd-V-per-timestep', action='store_true', default=False,
                     help='use a different V for each timestep')
+
+parser.add_argument('--g-with-batch', action='store_true', default=False,
+                    help='add batch dimension to the gs')
 
 parser.add_argument('--gpu', default=0, type=int,
                     help='which GPU to use')
@@ -522,12 +525,12 @@ def train(model, iterator, optimizer, criterion):
 
 
             for _ in range(args.num_directions):
-                predictions = model.fwd_mode(batch.text, batch.label, criterion, True, guess, args.ig, args.num_directions,
+                predictions = model.fwd_mode(batch.text, batch.label, criterion, True, args.num_directions,
+                                             g_with_batch=args.g_with_batch,
                                              reduce_batch=args.reduce_batch,
-                                             mage_no_batch=args.batched_mage,
                                              random_binary=args.binary,
-                                             reduce_batch_biases=args.reduce_batch_biases,
-                                             vanilla_biases=args.vanilla_biases)
+                                             vanilla_V_per_timestep=args.fwd_V_per_timestep,
+                                             random_t_separately=args.random_t_separately, guess=guess, ig=args.ig)
             if model.save_correlations:
                 input_corr_matrices.append(model.input_correlation_matrix)
                 output_corr_matrices.append(model.output_correlation_matrix)
@@ -538,14 +541,13 @@ def train(model, iterator, optimizer, criterion):
 
         elif args.use_fwd:
             for _ in range(args.num_directions):
-                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, None, -1.0 , args.num_directions,
+                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions,
+                                             g_with_batch=args.g_with_batch,
                                              reduce_batch=args.reduce_batch,
-                                             mage_no_batch=args.batched_mage,
                                              random_binary=args.binary,
-                                             reduce_batch_biases=args.reduce_batch_biases,
-                                             vanilla_biases=args.vanilla_biases,
                                              vanilla_V_per_timestep=args.fwd_V_per_timestep,
-                                             random_t_separately=args.random_t_separately)
+                                             random_t_separately=args.random_t_separately,
+                                             guess=None, ig=-1.0)
             if model.save_correlations:
                 input_corr_matrices.append(model.input_correlation_matrix)
                 output_corr_matrices.append(model.output_correlation_matrix)

@@ -383,8 +383,8 @@ def train(model, iterator, optimizer, criterion):
         optimizer.zero_grad()
         for _ in range(times_to_fwd_grad):
             predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad,
-                                         pertubate_batch=False, reduce_batch=False,
-                                         vanilla_biases=False, vanilla_V_per_timestep=False, random_t_separately=True)
+                                         g_with_batch=False, reduce_batch=False,
+                                         random_binary=True, vanilla_V_per_timestep=False, random_t_separately=True)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)
         acc = accuracy(predictions, batch.label)
