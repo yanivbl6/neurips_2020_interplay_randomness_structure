@@ -383,7 +383,7 @@ def train(model, iterator, optimizer, criterion):
         optimizer.zero_grad()
         for _ in range(times_to_fwd_grad):
             predictions = model.fwd_mode(batch.text, batch.label, criterion, True, times_to_fwd_grad,
-                                         reduce_batch=False, mage_no_batch=False, reduce_batch_biases=False,
+                                         pertubate_batch=False, reduce_batch=False,
                                          vanilla_biases=False, vanilla_V_per_timestep=False, random_t_separately=True)
         # predictions = model(batch.text)
         loss = criterion(predictions, batch.label)

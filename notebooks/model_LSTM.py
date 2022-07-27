@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import PackedSequence
 
-from torch.distributions.multivariate_normal import MultivariateNormal 
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torch.nn import RNN
 from rnn import LSTM
@@ -29,11 +29,24 @@ def apply_fwd_grad_batch(dFg, vw):
     else:
         return dFg.sum() * vw
 
+
 def apply_fwd_grad_reduce_batch(dFg, vw):
     return dFg.sum() * (vw.mean(dim=0) if vw.ndim == 3 else vw)
 
+
 def apply_fwd_grad_reduce_batch_w_biases(dFg, vw):
     return dFg.sum() * vw.mean(dim=0)
+
+
+def random(weight, binary, batch_size):
+    if batch_size == None:
+        get_shape = lambda w: (w.shape[0], 1)
+    else:
+        get_shape = lambda w: (batch_size, w.shape[0], 1)
+    if binary:
+        return torch.randint(0, 2, get_shape(weight), dtype=torch.float32, device=weight.device) * 2 - 1
+    else: # gaussian
+        torch.randn(get_shape(weight), device=weight.device)
 
 
 def create_new_Vs(rnn, j, device, epsilon):
@@ -96,16 +109,16 @@ def create_new_Vs_binary(rnn, j, device, epsilon):
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
-def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, epsilon, with_batch=False, with_batch_for_biases=False):
+def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, with_batch=False):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
     W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
     b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
     b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
 
     get_shape = lambda w: (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
-    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch and with_batch_for_biases else b.shape
+    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch else b.shape
 
-    
+
 
     z = guess[t]
     I = torch.eye(z.shape[1], device = device)
@@ -113,9 +126,9 @@ def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, epsil
 
     ##breakpoint()
     g = torch.cat([MultivariateNormal(Mu, I + alpha* torch.matmul(z[i:i+1,:].t(),z[i:i+1,:])).sample().unsqueeze(0) for i in range(z.shape[0]) ],dim = 0).unsqueeze(2)
-    
-    
-    
+
+
+
     H = g.shape[1]//4
     g0 = g[:,:H,:]
     g1 = g[:,H:2*H,:]
@@ -159,68 +172,12 @@ def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, epsil
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
-def create_new_Vs_mage_random_t_separately(x_t, h_part, pws, rnn, j, device, epsilon, with_batch=False, with_batch_for_biases=False):
-    pw_ii, pw_if, pw_ig, pw_io, pw_hi, pw_hf, pw_hg, pw_ho = pws
-    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch and with_batch_for_biases else b.shape
-    b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
-    b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
+def create_new_Vs_mage_random_t_separately(x_t, h_part, gs, device, binary=False):
+    def rand():
+        return torch.randint(0, 2, (1,), dtype=torch.float32, device=device) * 2 - 1 if binary \
+            else torch.randn((1,), device=device)
 
-    _vw_ii = torch.matmul(pw_ii * torch.randn((1,), device=device), normalize(x_t).unsqueeze(1))
-    _vw_hi = torch.matmul(pw_hi * torch.randn((1,), device=device), normalize(h_part).unsqueeze(1))
-    _vw_if = torch.matmul(pw_if * torch.randn((1,), device=device), normalize(x_t).unsqueeze(1))
-    _vw_hf = torch.matmul(pw_hf * torch.randn((1,), device=device), normalize(h_part).unsqueeze(1))
-    _vw_ig = torch.matmul(pw_ig * torch.randn((1,), device=device), normalize(x_t).unsqueeze(1))
-    _vw_hg = torch.matmul(pw_hg * torch.randn((1,), device=device), normalize(h_part).unsqueeze(1))
-    _vw_io = torch.matmul(pw_io * torch.randn((1,), device=device), normalize(x_t).unsqueeze(1))
-    _vw_ho = torch.matmul(pw_ho * torch.randn((1,), device=device), normalize(h_part).unsqueeze(1))
-
-    _vb_ii = torch.randn(get_shape_bias(b_ii), device=device) * epsilon
-    _vb_if = torch.randn(get_shape_bias(b_if), device=device) * epsilon
-    _vb_ig = torch.randn(get_shape_bias(b_ig), device=device) * epsilon
-    _vb_io = torch.randn(get_shape_bias(b_io), device=device) * epsilon
-    _vb_hi = torch.randn(get_shape_bias(b_hi), device=device) * epsilon
-    _vb_hf = torch.randn(get_shape_bias(b_hf), device=device) * epsilon
-    _vb_hg = torch.randn(get_shape_bias(b_hg), device=device) * epsilon
-    _vb_ho = torch.randn(get_shape_bias(b_ho), device=device) * epsilon
-
-    _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
-    _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
-    _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
-    _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
-
-    return _vw_i, _vw_h, _vb_i, _vb_h
-
-
-def create_new_Vs_mage(x_t, h_part, rnn, j, device, epsilon, with_batch=False, with_batch_for_biases=False, random_batch_separately=False):
-    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
-    # W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
-    # b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
-    # b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
-
-    get_shape = lambda w: (x_t.shape[0], w.shape[0], 1)
-    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch and with_batch_for_biases else b.shape
-
-    # pw_ii = torch.randn(get_shape(W_ii), device=device) * epsilon
-    # pw_if = torch.randn(get_shape(W_if), device=device) * epsilon
-    # pw_ig = torch.randn(get_shape(W_ig), device=device) * epsilon
-    # pw_io = torch.randn(get_shape(W_io), device=device) * epsilon
-    # pw_hi = torch.randn(get_shape(W_hi), device=device) * epsilon
-    # pw_hf = torch.randn(get_shape(W_hf), device=device) * epsilon
-    # pw_hg = torch.randn(get_shape(W_hg), device=device) * epsilon
-    # pw_ho = torch.randn(get_shape(W_ho), device=device) * epsilon
-    # _vb_ii = torch.randn(get_shape_bias(b_ii), device=device) * epsilon
-    # _vb_if = torch.randn(get_shape_bias(b_if), device=device) * epsilon
-    # _vb_ig = torch.randn(get_shape_bias(b_ig), device=device) * epsilon
-    # _vb_io = torch.randn(get_shape_bias(b_io), device=device) * epsilon
-    # _vb_hi = torch.randn(get_shape_bias(b_hi), device=device) * epsilon
-    # _vb_hf = torch.randn(get_shape_bias(b_hf), device=device) * epsilon
-    # _vb_hg = torch.randn(get_shape_bias(b_hg), device=device) * epsilon
-    # _vb_ho = torch.randn(get_shape_bias(b_ho), device=device) * epsilon
-
-    g0 = torch.randn(get_shape(W_ii), device=device) * epsilon
-    g1 = torch.randn(get_shape(W_if), device=device) * epsilon
-    g2 = torch.randn(get_shape(W_ig), device=device) * epsilon
-    g3 = torch.randn(get_shape(W_io), device=device) * epsilon
+    g0, g1, g2, g3 = [g * rand() for g in gs]
 
     norm = torch.sqrt((x_t**2).sum(dim = 1, keepdim = True) + (h_part**2).sum(dim = 1, keepdim = True) + 1 + 1)
 
@@ -251,6 +208,52 @@ def create_new_Vs_mage(x_t, h_part, rnn, j, device, epsilon, with_batch=False, w
     _vb_io = _vb_if
     _vb_ho = _vb_hf
 
+    _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
+    _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
+    _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
+    _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
+
+    return _vw_i, _vw_h, _vb_i, _vb_h
+
+
+def create_new_Vs_mage(x_t, h_part, rnn, j, with_batch=False, binary=False):
+    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
+
+    batch = None if not with_batch else x_t.shape[0]
+
+    g0 = random(W_ii, binary, batch)
+    g1 = random(W_if, binary, batch)
+    g2 = random(W_ig, binary, batch)
+    g3 = random(W_io, binary, batch)
+
+    norm = torch.sqrt((x_t**2).sum(dim = 1, keepdim = True) + (h_part**2).sum(dim = 1, keepdim = True) + 1 + 1)
+
+    pw_ii = g0
+    pw_if = g1
+    pw_ig = g2
+    pw_io = g3
+    pw_hi = g0
+    pw_hf = g1
+    pw_hg = g2
+    pw_ho = g3
+
+    _vw_ii = torch.matmul(pw_ii, (x_t/norm).unsqueeze(1))
+    _vw_hi = torch.matmul(pw_hi, (h_part/norm).unsqueeze(1))
+    _vw_if = torch.matmul(pw_if, (x_t/norm).unsqueeze(1))
+    _vw_hf = torch.matmul(pw_hf, (h_part/norm).unsqueeze(1))
+    _vw_ig = torch.matmul(pw_ig, (x_t/norm).unsqueeze(1))
+    _vw_hg = torch.matmul(pw_hg, (h_part/norm).unsqueeze(1))
+    _vw_io = torch.matmul(pw_io, (x_t/norm).unsqueeze(1))
+    _vw_ho = torch.matmul(pw_ho, (h_part/norm).unsqueeze(1))
+
+    _vb_ii = torch.matmul(g0, (1.0/norm).unsqueeze(1)).squeeze(2)
+    _vb_hi = torch.matmul(g1, (1.0/norm).unsqueeze(1)).squeeze(2)
+    _vb_if = torch.matmul(g2, (1.0/norm).unsqueeze(1)).squeeze(2)
+    _vb_hf = torch.matmul(g3, (1.0/norm).unsqueeze(1)).squeeze(2)
+    _vb_ig = _vb_ii
+    _vb_hg = _vb_hi
+    _vb_io = _vb_if
+    _vb_ho = _vb_hf
 
     _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
     _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
@@ -259,14 +262,14 @@ def create_new_Vs_mage(x_t, h_part, rnn, j, device, epsilon, with_batch=False, w
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
-def create_new_Vs_mage2(x_t, h_part, rnn, j, device, epsilon, with_batch=False, with_batch_for_biases=False):
+def create_new_Vs_mage_old(x_t, h_part, rnn, j, device, epsilon, with_batch=False, with_batch_for_biases=False):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
     W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
     b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
     b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
 
-    get_shape = lambda w: (w.shape[0], 1) if random_batch_separately or not with_batch else (x_t.shape[0], w.shape[0], 1)
-    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch and with_batch_for_biases and not random_batch_separately else b.shape
+    get_shape = lambda w: (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
+    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch and with_batch_for_biases else b.shape
 
     pw_ii = torch.randn(get_shape(W_ii), device=device) * epsilon
     pw_if = torch.randn(get_shape(W_if), device=device) * epsilon
@@ -432,11 +435,11 @@ class RNN(nn.Module):
             self.rnn = RNN(embedding_dim, hidden_dim, num_layers=n_layers,
                               bidirectional=bidirectional, dropout=dropout)
         elif rnn_type == 'LSTM':
-            self.rnn = LSTM(embedding_dim, hidden_dim, num_layers=n_layers,
+            self.rnn = nn.LSTM(embedding_dim, hidden_dim, num_layers=n_layers,
                                bidirectional=bidirectional, dropout=dropout)
 
 
-    
+
 
 
         # Decoder: fully-connected
@@ -451,14 +454,14 @@ class RNN(nn.Module):
         self.drop = nn.Dropout(dropout)
 
     def forward(self, batch_text):
-            
+
         text, text_lengths = batch_text
         # text = [sentence len, batch size]
 
         embedded = self.encoder(text)
         # embedded = [sent len, batch size, emb dim]
         T = self.trunc
-   
+
         if (T <= 0) or (T >= min(text_lengths)):
 
             # Pack sequence
@@ -528,9 +531,9 @@ class RNN(nn.Module):
 
         return hx, embedded
 
-    def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1, reduce_batch=False, mage_no_batch=False,
-                 random_binary=False, reduce_batch_biases=False, vanilla_biases=False, vanilla_V_per_timestep=False,
-                 random_t_separately=False, guess = None, ig = -1):
+    def fwd_mode(self, batch_text, y, loss, mage=False, grad_div=1, pertubate_batch=False, reduce_batch=False,
+                 random_binary=False, vanilla_biases=False, vanilla_V_per_timestep=False,
+                 random_t_separately=False, guess=None, ig=-1):
         hx, embedding = self.batch_text_to_input(batch_text)
         x = embedding
         device = x.device
@@ -555,8 +558,8 @@ class RNN(nn.Module):
                 b_ii, b_if, b_ig, b_io = split_by_4(self.rnn.__getattr__(f"bias_ih_l{j}"))
                 b_hi, b_hf, b_hg, b_ho = split_by_4(self.rnn.__getattr__(f"bias_hh_l{j}"))
 
-                get_shape = lambda weight: weight.shape if not mage or mage_no_batch else [x[0].shape[0]] + list(weight.shape)
-                get_shape_biases = lambda bias: bias.shape if not reduce_batch_biases else [x[0].shape[0]] + list(bias.shape)
+                get_shape = lambda weight: weight.shape if not mage else [x[0].shape[0]] + list(weight.shape)
+                get_shape_biases = lambda bias: bias.shape if not pertubate_batch else [x[0].shape[0]] + list(bias.shape)
                 vw_ii = torch.zeros(get_shape(W_ii)).to(device)
                 vw_hi = torch.zeros(get_shape(W_hi)).to(device)
                 vw_if = torch.zeros(get_shape(W_if)).to(device)
@@ -586,18 +589,11 @@ class RNN(nn.Module):
                         _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
                         _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
                     if random_t_separately:
-                        get_shape = lambda w: (w.shape[0], 1) if not reduce_batch else (x_t.shape[0], w.shape[0], 1)
-                        get_shape_bias = lambda b: (
-                        x_t.shape[0], b.shape[0]) if reduce_batch and reduce_batch_biases else b.shape
-
-                        pw_ii = torch.randn(get_shape(W_ii), device=device) * epsilon
-                        pw_if = torch.randn(get_shape(W_if), device=device) * epsilon
-                        pw_ig = torch.randn(get_shape(W_ig), device=device) * epsilon
-                        pw_io = torch.randn(get_shape(W_io), device=device) * epsilon
-                        pw_hi = torch.randn(get_shape(W_hi), device=device) * epsilon
-                        pw_hf = torch.randn(get_shape(W_hf), device=device) * epsilon
-                        pw_hg = torch.randn(get_shape(W_hg), device=device) * epsilon
-                        pw_ho = torch.randn(get_shape(W_ho), device=device) * epsilon
+                        batch = None
+                        g0 = random(W_ii, random_binary, batch)
+                        g1 = random(W_if, random_binary, batch)
+                        g2 = random(W_ig, random_binary, batch)
+                        g3 = random(W_io, random_binary, batch)
                 elif not vanilla_V_per_timestep:
                     if not random_binary:
                         _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
@@ -623,29 +619,20 @@ class RNN(nn.Module):
                         _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
                         _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
                     if mage:
-                        if mage_no_batch:
-                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_no_batch(x_t, h_part, self.rnn, j, device, epsilon)
+                        if guess is not None:
+                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn, guess, ig, seq , j, device,
+                                                                            epsilon, reduce_batch)
                         elif random_t_separately:
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_random_t_separately(x_t, h_part,
-                                                        (pw_ii, pw_if, pw_ig, pw_io, pw_hi, pw_hf, pw_hg, pw_ho),
-                                                                   self.rnn, j, device, epsilon)
+                                                                                            (g0, g1, g2, g3),
+                                                                                            device)
                         else:
-                            if guess is not None:
-                                _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn, guess, ig, seq , j, device,
-                                                                                epsilon, reduce_batch,
-                                                                                reduce_batch_biases)
-                            elif not random_binary:
-                                _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, device,
-                                                                                epsilon, reduce_batch,
-                                                                                reduce_batch_biases)
-                            else:
-                                _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_binary(x_t, h_part, self.rnn, j, device,
-                                                                                epsilon, reduce_batch)
+                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, device,
+                                                                            epsilon, with_batch=pertubate_batch, binary=random_binary)
                         _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
                         _vw_hi, _vw_hf, _vw_hg, _vw_ho = _vw_h
-                        if not vanilla_biases:
-                            _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
-                            _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
+                        _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
+                        _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
 
                     i_p = x_t @ W_ii.T + b_ii + h_part @ W_hi.T + b_hi
 
@@ -712,16 +699,15 @@ class RNN(nn.Module):
                         vw_hg += _vw_hg
                         vw_io += _vw_io
                         vw_ho += _vw_ho
-                        if not vanilla_biases:
-                            vb_ii += _vb_ii
-                            vb_hi += _vb_hi
-                            vb_if += _vb_if
-                            vb_hf += _vb_hf
-                            vb_ig += _vb_ig
-                            vb_hg += _vb_hg
-                            vb_io += _vb_io
-                            vb_ho += _vb_ho
-                            # todo: add dropout as in nn.LSTM
+                        vb_ii += _vb_ii
+                        vb_hi += _vb_hi
+                        vb_if += _vb_if
+                        vb_hf += _vb_hf
+                        vb_ig += _vb_ig
+                        vb_hg += _vb_hg
+                        vb_io += _vb_io
+                        vb_ho += _vb_ho
+                        # todo: add dropout as in nn.LSTM
 
                 x = torch.stack(h_list[1:], dim=0)
                 z_grad_list = torch.stack(h_grad_list, dim=0)
@@ -747,23 +733,12 @@ class RNN(nn.Module):
             # hidden = self.drop(hidden)
 
             if mage:
-                get_shape = lambda w: (w.shape[0], 1) if not reduce_batch else (hidden.shape[0], w.shape[0], 1)
-                get_shape_bias = lambda b: (hidden.shape[0], b.shape[0]) if reduce_batch_biases else b.shape[0]
+                # get_shape = lambda w: (w.shape[0], 1) if not reduce_batch else (hidden.shape[0], w.shape[0], 1)
+                norm = torch.sqrt((x_t ** 2).sum(dim=1, keepdim=True) + 1)
 
-                if random_binary:
-                    pw = torch.randint(0, 2, get_shape(self.decoder.weight), device=device, dtype=torch.float32) * 2 - 1
-                else:
-                    pw = torch.randn(get_shape(self.decoder.weight), device=device, dtype=torch.float32) * epsilon
-                if mage_no_batch:
-                    vw = torch.matmul(pw, normalize(hidden).unsqueeze(1)).mean(dim=0)
-                else:
-                    vw = torch.matmul(pw, normalize(hidden).unsqueeze(1))
-                if random_binary:
-                    vb = torch.randint(0, 2, self.decoder.bias.shape, device=device, dtype=torch.float32) * 2 - 1
-                else:
-                    vb = torch.randn(get_shape_bias(self.decoder.bias), device=device, dtype=torch.float32) * epsilon
-                    if reduce_batch_biases and vb.shape[1] == 1:
-                        vb = vb.squeeze(dim=-1)
+                pw = random(self.decoder.weight, random_binary, hidden.shape[0] if pertubate_batch else None)
+                vw = torch.matmul(pw, (hidden/norm).unsqueeze(1))
+                vb = random(self.decoder.bias, random_binary, hidden.shape[0] if pertubate_batch else None).squeeze(-1)
             else:
                 if random_binary:
                     vw = torch.randint(0, 2, self.decoder.weight.shape, device=device, dtype=torch.float32) * 2 - 1
@@ -789,11 +764,10 @@ class RNN(nn.Module):
         ##grad_transfer = dLdout.permute(1, 0) ## Batch x n_classes
         ##tot_norm = torch.sqrt(tot_norm)
         with torch.no_grad():
-            dFg = (dLdout * grad) if mage and not mage_no_batch else (dLdout * grad).sum()
-            apply_fwd_grad = apply_fwd_grad_batch if mage and not mage_no_batch else apply_fwd_grad_no_batch
+            dFg = (dLdout * grad) if mage else (dLdout * grad).sum()
+            apply_fwd_grad = apply_fwd_grad_batch if mage else apply_fwd_grad_no_batch
             if mage and reduce_batch:
-                apply_fwd_grad = apply_fwd_grad_reduce_batch if not reduce_batch_biases else \
-                    apply_fwd_grad_reduce_batch_w_biases
+                apply_fwd_grad = apply_fwd_grad_reduce_batch
 
             for i in range(self.rnn.num_layers):
                 for w in [self.rnn.__getattr__(f"weight_ih_l{i}"),
