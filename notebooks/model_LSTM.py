@@ -174,8 +174,9 @@ def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, with_
 
 def create_new_Vs_mage_random_t_separately(x_t, h_part, gs, device, binary=False):
     def rand():
-        return torch.randint(0, 2, (1,), dtype=torch.float32, device=device) * 2 - 1 if binary \
-            else torch.randn((1,), device=device)
+        return torch.randn((1,), device=device)
+        # return torch.randint(0, 2, (1,), dtype=torch.float32, device=device) * 2 - 1 if binary \
+        #     else torch.randn((1,), device=device)
 
     g0, g1, g2, g3 = [g * rand() for g in gs]
 
@@ -353,7 +354,7 @@ class RNN(nn.Module):
             self.rnn = RNN(embedding_dim, hidden_dim, num_layers=n_layers,
                               bidirectional=bidirectional, dropout=dropout)
         elif rnn_type == 'LSTM':
-            self.rnn = nn.LSTM(embedding_dim, hidden_dim, num_layers=n_layers,
+            self.rnn = LSTM(embedding_dim, hidden_dim, num_layers=n_layers,
                                bidirectional=bidirectional, dropout=dropout)
 
 
@@ -414,11 +415,13 @@ class RNN(nn.Module):
         # Concatenate the final hidden layers (for bidirectional)
         # hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim = 1)
         # breakpoint()
+        if hidden.ndim == 2:
+            hidden = hidden.unsqueeze(0)
         hidden = (torch.transpose(hidden[-self.n_directions:], 0, 1)).reshape(
             (-1, self.hidden_dim * self.n_directions))
 
         # Dropout
-        hidden = self.drop(hidden)
+        # hidden = self.drop(hidden)
 
         # Decode
         decoded = self.decoder(hidden).squeeze(1)
@@ -633,7 +636,7 @@ class RNN(nn.Module):
             grad = dh_t_dW
 
         with torch.no_grad():
-            packed_output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.stack(h_stack, dim=0))
+            output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.stack(c_stack, dim=0))
 
             self.rnn.permute_hidden(hidden, None)
 

@@ -133,7 +133,7 @@ SAVE_CORR = args.save_corr
 
 
 
-##os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from model_LSTM import RNN
 
