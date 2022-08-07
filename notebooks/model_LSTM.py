@@ -9,6 +9,65 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.nn import RNN
 from rnn import LSTM
 
+import math
+import wandb
+
+def angle(x,y):
+    ##breakpoint()
+    return (x.squeeze()*y.squeeze()).sum(dim=1)/(torch.norm(x.squeeze(),dim=1)*torch.norm(y.squeeze(),dim=1))
+
+def decompose(z, alpha):
+    device = z.device
+
+    # I = torch.eye(z.shape[2], device = device).unsqueeze(0)
+    # Sigma = I + alpha* torch.matmul(z,z.permute(0,2,1))
+    # L2 = torch.cholesky(Sigma)
+
+
+    z = z / z.norm(dim=2, keepdim = True)
+
+    znorm2 = (z.norm(dim=2, keepdim = True))**2
+    
+    factor = torch.sqrt(alpha**2+ (1-alpha**2)* (znorm2))  - alpha
+    factor = factor/ znorm2
+    
+    L =  alpha*torch.eye(z.size(2), device = device).unsqueeze(0) + factor * (z.permute(0,2,1) @ z)
+    ##L =  alpha*torch.eye(z.size(2), device = device).unsqueeze(0) + factor * z
+
+
+
+    I = torch.eye(z.shape[2], device = device).unsqueeze(0)
+    # Sigma = (alpha**2)*I + (1-alpha**2)* torch.matmul(z,z.permute(0,2,1))
+    # Sigma2 = (L @ L.permute(0,2,1))
+    # diff = ((Sigma - Sigma2 )**2).sum()
+    # if (diff > 1E-5):
+    #     breakpoint()
+
+    return L
+
+
+def batched_sherman_morrison(guess,t, alpha):
+    z = guess[t].unsqueeze(1)
+    z = z / z.norm(dim=2, keepdim = True)
+
+    device = z.device
+
+
+    I = torch.eye(z.shape[2], device = device).unsqueeze(0)
+    if alpha > 0.0:
+
+        if alpha == 0.0:
+            return I
+
+        factor = (1-alpha**2)/(alpha**2)
+        den = 1 + factor* torch.matmul(z,z.permute(0,2,1))
+        sol = I - factor* torch.matmul(z.permute(0,2,1),z)/den
+        return sol/alpha**2
+    else:
+        return I    
+
+
+
 def normalize(x):
     eps = 1E-8
     return x / (x.norm(dim=-1, keepdim=True) + eps)
@@ -21,6 +80,10 @@ def invert_sigma(A):
 
 def split_by_4(x):
     return torch.split(x, x.shape[0] // 4)
+
+def split_by_4(x):
+    return torch.split(x, x.shape[0] // 4)
+
 
 
 def combine_batch(new, old):
@@ -117,25 +180,56 @@ def create_new_Vs_binary(rnn, j, device, epsilon):
     return _vw_i, _vw_h, _vb_i, _vb_h
 
 def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, epsilon, with_batch=False, with_batch_for_biases=False):
-    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
-    W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
-    b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
-    b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
+    # W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
+    # W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
+    # b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
+    # b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
 
-    get_shape = lambda w: (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
-    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch and with_batch_for_biases else b.shape
+    # get_shape = lambda w: (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
+    # get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch and with_batch_for_biases else b.shape
 
     
 
-    z = guess[t]
-    I = torch.eye(z.shape[1], device = device)
-    Mu = torch.zeros([z.shape[1]],device = device)
+    if False:
+        z = guess[t]
+        I = torch.eye(z.shape[1], device = device)
+        Mu = torch.zeros([z.shape[1]],device = device)
 
-    ##breakpoint()
-    g = torch.cat([MultivariateNormal(Mu, I + alpha* torch.matmul(z[i:i+1,:].t(),z[i:i+1,:])).sample().unsqueeze(0) for i in range(z.shape[0]) ],dim = 0).unsqueeze(2)
-    
-    
-    
+        ##breakpoint()
+        g = torch.cat([MultivariateNormal(Mu, I + alpha* torch.matmul(z[i:i+1,:].t(),z[i:i+1,:])).sample().unsqueeze(0) for i in range(z.shape[0]) ],dim = 0).unsqueeze(2)
+    elif False:
+        z = guess[t]
+        I = torch.eye(z.shape[1], device = device)
+        Mu = torch.zeros([z.shape[1]],device = device)
+        
+        g = MultivariateNormal(Mu, I + alpha* torch.matmul(z.t(),z)).sample((x_t.shape[0],)).unsqueeze(2)
+    else:
+        z = guess[t].unsqueeze(1)        
+        
+        if alpha > 0.0:
+            ##breakpoint()
+
+            L = decompose(z,alpha )
+
+
+
+            v = torch.randn([L.shape[0],L.shape[1],1], device=device)
+
+            g= L @ v
+            
+
+
+        else:
+            g = guess[t].unsqueeze(2)
+
+        ang = angle(z,g).abs().mean()
+        ##wandb.log({f"Angle_{t}": ang })
+
+        ##breakpoint()
+
+
+
+
     H = g.shape[1]//4
     g0 = g[:,:H,:]
     g1 = g[:,H:2*H,:]
@@ -152,6 +246,8 @@ def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, epsil
     pw_hf = g1
     pw_hg = g2
     pw_ho = g3
+
+
 
     _vw_ii = torch.matmul(pw_ii, (x_t/norm).unsqueeze(1))
     _vw_hi = torch.matmul(pw_hi, (h_part/norm).unsqueeze(1))
@@ -823,6 +919,23 @@ class RNN(nn.Module):
                     dh_t_dW_full_batch = combine_batch(dh_t_dW, dh_t_dW_full_batch)
                     c_t_1 = c_t
 
+                    # if not guess is None and ig > 0.0:
+                    #     transform = batched_sherman_morrison(guess, seq, ig)
+                    #     vw_ih2 = torch.cat([_vw_ii, _vw_if, _vw_ig, _vw_io], dim=-2)
+                    #     vw_hh2 = torch.cat([_vw_hi, _vw_hf, _vw_hg, _vw_ho], dim=-2)
+                    #     vb_ih2 = torch.cat([_vb_ii, _vb_if, _vb_ig, _vb_io], dim=-1).unsqueeze(2)
+                    #     vb_hh2 = torch.cat([_vb_hi, _vb_hf, _vb_hg, _vb_ho], dim=-1).unsqueeze(2)                      
+                    #     vw_ih2 = transform @ vw_ih2
+                    #     vw_hh2 = transform @ vw_hh2
+                    #     vb_ih2 = transform @ vb_ih2
+                    #     vb_hh2 = transform @ vb_hh2
+                    #     breakpoint()
+
+
+                    #     _vw_ii, _vw_if, _vw_ig, _vw_io = torch.split(vw_ih2, vw_ih2.shape[1] // 4, dim = 1)
+                    #     _vw_hi, _vw_hf, _vw_hg, _vw_ho = torch.split(vw_hh2, vw_ih2.shape[1] // 4, dim = 1)
+                    #     _vb_ii, _vb_if, _vb_ig, _vb_io = torch.split(vb_ih2.squeeze(2), vw_ih2.shape[1] // 4, dim = 1)
+                    #     _vb_hi, _vb_hf, _vb_hg, _vb_ho = torch.split(vb_hh2.squeeze(2), vw_ih2.shape[1] // 4, dim = 1)
                     if mage and (j, seq) in relevant_Vs:
                         vw_ii += combine_batch(_vw_ii, torch.zeros_like(vw_ii))
                         vw_hi += combine_batch(_vw_hi, torch.zeros_like(vw_hi))
@@ -854,16 +967,26 @@ class RNN(nn.Module):
                             vb_ho += combine_batch(_vb_ho, torch.zeros_like(vb_ho))
 
 
+
+
+
                             # todo: add dropout as in nn.LSTM
+
+
+
                 x = tuple(h_list[1:])
                 z_grad_list = h_grad_list
                 vw_ih = torch.cat([vw_ii, vw_if, vw_ig, vw_io], dim=-2)
                 vw_hh = torch.cat([vw_hi, vw_hf, vw_hg, vw_ho], dim=-2)
                 vb_ih = torch.cat([vb_ii, vb_if, vb_ig, vb_io], dim=-1)
                 vb_hh = torch.cat([vb_hi, vb_hf, vb_hg, vb_ho], dim=-1)
+
+
                 V[j] = (vw_ih, vw_hh, vb_ih, vb_hh)
                 h_stack.append(h_full_batch)
                 c_stack.append(c_t)
+
+
 
             grad = dh_t_dW_full_batch
 

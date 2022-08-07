@@ -10,8 +10,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
-from torchtext.legacy import data
-from torchtext.legacy import datasets
+try:
+    from torchtext.legacy import data
+    from torchtext.legacy import datasets
+except:
+    from torchtext import data
+    from torchtext import datasets
 from tqdm import tqdm
 
 import wandb
@@ -98,11 +102,15 @@ parser.add_argument('--pretrained', default="", type=str,
 parser.add_argument('--ig', default=-1.0, type=float,
                     help='weight decay (default: 0)')
 
+parser.add_argument('--include-padding', action='store_true', default=False,
+                    help='Insert the sequence with the padding')
+
+
 
 args = parser.parse_args()
 
 
-args.use_ig = args.ig > 0
+args.use_ig = args.ig >= 0
 
 if args.use_ig:
     args.use_mage = True
@@ -513,6 +521,11 @@ def train(model, iterator, optimizer, criterion):
     for batch in tqdm(iterator):
         optimizer.zero_grad()
 
+
+        if args.include_padding:
+            text, text_lengths = batch.text
+            batch.text = text, text_lengths.max().expand(text_lengths.size(0))
+
         if args.use_ig:
             predictions = model(batch.text)
             loss = criterion(predictions, batch.label)
@@ -533,7 +546,7 @@ def train(model, iterator, optimizer, criterion):
             if model.save_correlations:
                 input_corr_matrices.append(model.input_correlation_matrix)
                 output_corr_matrices.append(model.output_correlation_matrix)
-                
+
             loss = criterion(predictions, batch.label)
             acc = accuracy(predictions, batch.label)
 
