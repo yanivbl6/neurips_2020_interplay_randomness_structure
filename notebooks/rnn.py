@@ -37,6 +37,7 @@ class LSTM(nn.Module):
         ##x = x[0]
 
         self.guess_i = []
+
         self.guess_h = []
 
         bs, seq_sz, _ = x.size()
