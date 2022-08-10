@@ -174,9 +174,9 @@ def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, with_
 
 def create_new_Vs_mage_random_t_separately(x_t, h_part, gs, device, binary=False):
     def rand():
-        return torch.randn((1,), device=device)
-        # return torch.randint(0, 2, (1,), dtype=torch.float32, device=device) * 2 - 1 if binary \
-        #     else torch.randn((1,), device=device)
+        # keep the overall distribution gaussian
+        return torch.randint(0, 2, (1,), dtype=torch.float32, device=device) * 2 - 1 if not binary \
+            else torch.randn((1,), device=device)
 
     g0, g1, g2, g3 = [g * rand() for g in gs]
 
@@ -541,8 +541,8 @@ class RNN(nn.Module):
                                                                                             (g0, g1, g2, g3),
                                                                                             device, binary=random_binary)
                         else:
-                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, device,
-                                                                            epsilon, with_batch=g_with_batch, binary=random_binary)
+                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j,
+                                                                            with_batch=g_with_batch, binary=random_binary)
                         _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
                         _vw_hi, _vw_hf, _vw_hg, _vw_ho = _vw_h
                         _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i

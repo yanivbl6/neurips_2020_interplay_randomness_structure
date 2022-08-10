@@ -631,7 +631,7 @@ for epoch in range(N_EPOCHS):
     loss_acc[epoch] = train_loss, valid_loss, train_acc, valid_acc
 
 
-    if not args.scheduler is None:
+    if not scheduler is None:
         scheduler.step()
 
     lr_sample = optimizer.param_groups[0]['lr']
