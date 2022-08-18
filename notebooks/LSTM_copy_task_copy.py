@@ -238,7 +238,7 @@ def count_parameters(model):
 
 print(f'\nThe model has {count_parameters(model):,} trainable parameters')
 
-train_length, val_length, test_length = 2000, 100, 100
+train_length, val_length, test_length = 1000, 100, 100
 
 train_iterator = list(dataloader(num_batches=train_length,
 							batch_size=args.batch_size,
@@ -335,18 +335,16 @@ def train(model, iterator, optimizer, criterion, length):
 
 		elif args.use_fwd:
 			for _ in range(args.num_directions):
-				predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions,
+				predictions = model.fwd_mode(x, y, criterion, args.use_mage, args.num_directions,
 											 g_with_batch=args.g_with_batch,
 											 reduce_batch=args.reduce_batch,
 											 random_binary=args.binary,
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 											 random_t_separately=args.random_t_separately,
 											 guess=None, ig=-1.0)
-			if model.save_correlations:
-				input_corr_matrices.append(model.input_correlation_matrix)
-				output_corr_matrices.append(model.output_correlation_matrix)
-			loss = criterion(predictions, batch.label)
-			acc = accuracy(predictions, batch.label)
+			predictions, y = predictions.reshape(-1, 8), y.reshape(-1, 8)
+			loss = criterion(predictions, y)
+			acc = accuracy(predictions, y)
 
 		else:
 			predictions = model(x)

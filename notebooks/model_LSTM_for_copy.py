@@ -354,7 +354,7 @@ class RNN(nn.Module):
         length, _b, _d = sequence.shape
         length = length // 2
         zeros = torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1),
-                            _d, self.rnn.hidden_size,
+                            _b, self.rnn.hidden_size,
                             dtype=sequence.dtype, device=sequence.device)
         hx = (zeros, zeros)
         x = sequence
@@ -368,7 +368,7 @@ class RNN(nn.Module):
         # relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))[-3:]]
         with torch.no_grad():
             for j in range(self.rnn.num_layers):
-                h, c_t_1 = hx[j] if hx[0].shape[0] > 1 else (hx[0][0], hx[1][0])
+                h, c_t_1 = hx[0][j], hx[1][j]
                 h_list = [h]
                 h_grad_list = []
                 h_full_batch = torch.zeros_like(h)
@@ -534,14 +534,16 @@ class RNN(nn.Module):
                 h_stack.append(h)
                 c_stack.append(c_t)
 
-            grad = dh_t_dW
+            grad = z_grad_list[length+1:, :, :]
 
         with torch.no_grad():
             output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.stack(c_stack, dim=0))
+            output = output[length+1:, :, :].reshape(-1, output.shape[-1])
+            grad = grad.reshape(-1, grad.shape[-1])
 
             if mage:
                 # get_shape = lambda w: (w.shape[0], 1) if not reduce_batch else (hidden.shape[0], w.shape[0], 1)
-                norm = torch.sqrt((x_t ** 2).sum(dim=1, keepdim=True) + 1)
+                norm = torch.sqrt((output ** 2).sum(dim=-1, keepdim=True) + 1)
 
                 pw = random(self.decoder.weight, random_binary, hidden.shape[0] if g_with_batch else None)
                 vw = torch.matmul(pw, (hidden/norm).unsqueeze(1))
@@ -552,17 +554,17 @@ class RNN(nn.Module):
                 else:
                     vw = torch.randn(self.decoder.weight.shape, device=device, dtype=torch.float32) * epsilon
                 vb = torch.randn(self.decoder.bias.shape, device=device, dtype=torch.float32) * epsilon
-            new_grad = (output[:,length+1:,:].unsqueeze(1) @ torch.transpose(vw, -1, -2)).squeeze() + vb
+            new_grad = (output.unsqueeze(1) @ torch.transpose(vw, -1, -2)).squeeze() + vb
             grad = torch.matmul(grad, self.decoder.weight.permute(1, 0)).squeeze() + new_grad
 
             # Decode
-            decoded = self.decoder(output[:,length+1:,:]).squeeze(1)
+            decoded = self.decoder(output).squeeze(1)
 
         dLdout = torch.zeros_like(decoded)
 
         out = torch.autograd.Variable(decoded, requires_grad=True)
         out.grad = torch.zeros_like(out)
-        L = loss(out, y)
+        L = loss(out, y.reshape(-1, 8))
 
         L.backward()
         ##import pdb; pdb.set_trace()
