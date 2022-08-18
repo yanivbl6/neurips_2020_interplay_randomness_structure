@@ -648,7 +648,7 @@ class RNN(nn.Module):
 
             if mage:
                 # get_shape = lambda w: (w.shape[0], 1) if not reduce_batch else (hidden.shape[0], w.shape[0], 1)
-                norm = torch.sqrt((hidden ** 2).sum(dim=1, keepdim=True) + 1)
+                norm = torch.sqrt((hidden ** 2).sum(dim=-1, keepdim=True) + 1)
 
                 pw = random(self.decoder.weight, random_binary, hidden.shape[0] if g_with_batch else None)
                 vw = torch.matmul(pw, (hidden/norm).unsqueeze(1))
