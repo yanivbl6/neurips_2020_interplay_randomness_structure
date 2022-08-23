@@ -43,7 +43,8 @@ def dataloader(num_batches,
         inp = torch.zeros(2*seq_len + 1, batch_size, seq_width + 1)
         inp[:seq_len, :, :seq_width] = seq
         inp[seq_len, :, seq_width] = 1.0 # delimiter in our control channel
-        outp = seq.clone()
+        outp = torch.zeros(2 * seq_len + 1, batch_size, seq_width)
+        outp[seq_len+1:, :, :] = seq.clone()
 
         if device is not None:
             inp = inp.to(device)

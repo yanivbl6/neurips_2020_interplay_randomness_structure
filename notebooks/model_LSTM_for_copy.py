@@ -326,7 +326,7 @@ class RNN(nn.Module):
         self.n_directions = n_directions
         # Total number of distinguishable weights
 
-        self.rnn = LSTM(9, hidden_dim, num_layers=n_layers,
+        self.rnn = LSTM(self.output_dim + 1, hidden_dim, num_layers=n_layers,
                                bidirectional=bidirectional, dropout=dropout)
 
         # Decoder: fully-connected
@@ -343,7 +343,7 @@ class RNN(nn.Module):
         hidden_seq, (h_t, c_t) = self.rnn(sequence)
 
         # Decode
-        decoded = self.decoder(hidden_seq[length+1:,:,:])
+        decoded = self.decoder(hidden_seq)
 
         return decoded
 
@@ -352,7 +352,7 @@ class RNN(nn.Module):
                  random_binary=False, vanilla_V_per_timestep=False,
                  random_t_separately=False, guess=None, ig=-1):
         length, _b, _d = sequence.shape
-        length = length // 2
+
         zeros = torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1),
                             _b, self.rnn.hidden_size,
                             dtype=sequence.dtype, device=sequence.device)
@@ -534,19 +534,18 @@ class RNN(nn.Module):
                 h_stack.append(h)
                 c_stack.append(c_t)
 
-            grad = z_grad_list[length+1:, :, :]
+            grad = z_grad_list
 
         with torch.no_grad():
             output, (hidden, _) = x, (torch.stack(h_stack, dim=0), torch.stack(c_stack, dim=0))
-            output = output[length+1:, :, :].reshape(-1, output.shape[-1])
+            output = output.reshape(-1, output.shape[-1])
             grad = grad.reshape(-1, grad.shape[-1])
 
             if mage:
-                # get_shape = lambda w: (w.shape[0], 1) if not reduce_batch else (hidden.shape[0], w.shape[0], 1)
                 norm = torch.sqrt((output ** 2).sum(dim=-1, keepdim=True) + 1)
 
-                pw = random(self.decoder.weight, random_binary, hidden.shape[0] if g_with_batch else None)
-                vw = torch.matmul(pw, (hidden/norm).unsqueeze(1))
+                pw = random(self.decoder.weight, random_binary, output.shape[0] if g_with_batch else None)
+                vw = torch.matmul(pw, (output/norm).unsqueeze(1))
                 vb = torch.matmul(pw, (1.0 / norm).unsqueeze(1)).squeeze(-1).squeeze(-1)
             else:
                 if random_binary:
@@ -564,7 +563,7 @@ class RNN(nn.Module):
 
         out = torch.autograd.Variable(decoded, requires_grad=True)
         out.grad = torch.zeros_like(out)
-        L = loss(out, y.reshape(-1, 8))
+        L = loss(out, y.reshape(-1, self.output_dim))
 
         L.backward()
         ##import pdb; pdb.set_trace()
@@ -573,7 +572,7 @@ class RNN(nn.Module):
         ##grad_transfer = dLdout.permute(1, 0) ## Batch x n_classes
         ##tot_norm = torch.sqrt(tot_norm)
         with torch.no_grad():
-            dFg = (dLdout * grad) if mage else (dLdout * grad).sum()
+            dFg = ((dLdout * grad) if mage else (dLdout * grad).sum()).sum(dim=-1)
             apply_fwd_grad = apply_fwd_grad_batch if mage else apply_fwd_grad_no_batch
             if mage and reduce_batch:
                 apply_fwd_grad = apply_fwd_grad_reduce_batch
@@ -586,7 +585,7 @@ class RNN(nn.Module):
                     if w.grad is None:
                         w.grad = torch.zeros_like(w)
 
-                vw_ih, vw_hh, vb_ih, vb_hh = V[i]
+                vw_ih, vw_hh, vb_ih, vb_hh = [v.repeat((length, 1, 1)) if v.ndim == 3 else v.repeat((length, 1)) for v in V[i]]
                 ##breakpoint()
                 self.rnn.__getattr__(f"weight_ih_l{i}").grad += apply_fwd_grad(dFg, vw_ih) / grad_div
                 self.rnn.__getattr__(f"weight_hh_l{i}").grad += apply_fwd_grad(dFg, vw_hh) / grad_div

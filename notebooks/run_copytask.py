@@ -30,7 +30,7 @@ import os
 from torch import nn
 from torch.nn import LSTM
 from copytask import dataloader
-from notebooks.model_LSTM_for_copy import RNN
+from model_LSTM_for_copy import RNN
 
 
 
@@ -57,8 +57,8 @@ parser.add_argument('--name', type=str, default="", help='network name')
 
 parser.add_argument('--scheduler', type=str, default="", help='scheduler')
 
-parser.add_argument('--emb-dim', default=50, type=int,
-					help='embedding dimension [50, 100, 200, 300]')
+parser.add_argument('--vec-dim', default=8, type=int,
+					help='bit vector size')
 
 parser.add_argument('--hidden-dim', default=64, type=int,
 					help='hidden dimension')
@@ -75,8 +75,6 @@ parser.add_argument('--weight-decay', '--wd', default=0, type=float,
 parser.add_argument('--droprate', default=0.0, type=float,
 					help='rate for dropout')
 
-parser.add_argument('--train-emb', action='store_true', default=False,
-					help='traing the embedding layer')
 
 parser.add_argument('--no-wandb', action='store_true', default=False,
 					help='disables W&B logging')
@@ -131,22 +129,21 @@ if args.use_mage:
 	args.use_fwd = True
 
 RNN_TYPE = args.rnn_type
-EMB_DIM = args.emb_dim
 HIDDEN_DIM = args.hidden_dim
 N_LAYERS = args.num_layers
 BIDIRECTIONAL = args.bidirectional
 WEIGHT_DECAY = args.weight_decay
 DROPOUT = args.droprate
-TRAIN_EMB = args.train_emb
 SAVE_CORR = args.save_corr
 BATCH_SIZE = args.batch_size
 G_REC = None
 N_EPOCHS = args.epochs
+VEC_DIM = args.vec_dim
 
 stop_at = 0.0080  # End training at required loss
 
 seq_len = 20 # Change this to change the sequence length (Kept at 20 for initial training)
-bits=8 # The actual vector size for copying task
+bits=VEC_DIM # The actual vector size for copying task
 in_bits = bits+2 # The extra side track
 out_bits = bits
 
@@ -158,13 +155,11 @@ act_seq_len = (seq_len*2)+2 # Actual sequence lenght which includes the delimite
 
 
 RNN_TYPE = args.rnn_type
-EMB_DIM = args.emb_dim
 HIDDEN_DIM = args.hidden_dim
 N_LAYERS = args.num_layers
 BIDIRECTIONAL = args.bidirectional
 WEIGHT_DECAY = args.weight_decay
 DROPOUT = args.droprate
-TRAIN_EMB = args.train_emb
 SAVE_CORR = args.save_corr
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
@@ -203,7 +198,6 @@ if G_REC is not None:
 # Embedding
 emb_str = '_emb'
 
-emb_str += '_dim_%d' % EMB_DIM
 # Regularization
 dropout_str = ''.join(('_dropout_%.1f' % DROPOUT).split('.'))
 weight_decay_str = ''.join(('_weight_decay_%.3f' % WEIGHT_DECAY).split('.'))
@@ -212,7 +206,6 @@ model_name = ("" + '_' + RNN_TYPE.lower()
               + '_nlayers_%d' % N_LAYERS
               + '_nhid_%d' % HIDDEN_DIM
               + (g_str if G_REC is not None else '')
-              + emb_str
               + dropout_str
               + weight_decay_str
               + '_seed_%d' % SEED)
@@ -226,7 +219,7 @@ SAVE = os.path.join(model_dir, model_name)
 print("Will save model to \n  '%s'" % SAVE)
 
 # A 3-layer LSTM
-model = RNN(hidden_dim=args.hidden_dim, output_dim=8, n_layers=3,
+model = RNN(hidden_dim=args.hidden_dim, output_dim=VEC_DIM, n_layers=1,
                  bidirectional=False, dropout=0)
 
 # Save the initial model connectivity
@@ -242,23 +235,23 @@ train_length, val_length, test_length = 1000, 100, 100
 
 train_iterator = list(dataloader(num_batches=train_length,
 							batch_size=args.batch_size,
-							seq_width=8,
+							seq_width=VEC_DIM,
 							min_len=1,
-							max_len=20,
+							max_len=10,
 							device=device))
 
 valid_iterator = list(dataloader(num_batches=val_length,
 							batch_size=args.batch_size,
-							seq_width=8,
+							seq_width=VEC_DIM,
 							min_len=1,
-							max_len=20,
+							max_len=10,
 							device=device))
 
 test_iterator = list(dataloader(num_batches=test_length,
 						   batch_size=args.batch_size,
-						   seq_width=8,
+						   seq_width=VEC_DIM,
 						   min_len=1,
-						   max_len=20,
+						   max_len=10,
 						   device=device))
 
 
@@ -342,13 +335,13 @@ def train(model, iterator, optimizer, criterion, length):
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 											 random_t_separately=args.random_t_separately,
 											 guess=None, ig=-1.0)
-			predictions, y = predictions.reshape(-1, 8), y.reshape(-1, 8)
+			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)
 
 		else:
 			predictions = model(x)
-			predictions, y = predictions.reshape(-1, 8), y.reshape(-1, 8)
+			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)
 
@@ -369,7 +362,7 @@ def evaluate(model, iterator, criterion, length):
 		for batch in iterator:
 			_, x, y = batch
 			predictions = model(x)
-			predictions, y = predictions.reshape(-1, 8), y.reshape(-1, 8)
+			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)
 			epoch_loss += loss.item()
@@ -389,7 +382,7 @@ def epoch_time(start_time, end_time):
 # Run training
 
 if not args.no_wandb:
-	wandb.init(project="mage-text", entity="dl-projects", config={"INPUT_DIM": INPUT_DIM})
+	wandb.init(project="mage-copy", entity="dl-projects", config={"INPUT_DIM": VEC_DIM})
 
 	wandb.config.update(args)
 
