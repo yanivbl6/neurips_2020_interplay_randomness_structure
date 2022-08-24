@@ -51,6 +51,15 @@ parser.add_argument('--use-fwd', action='store_true', default=False,
 parser.add_argument('-d', '--num-directions', default=10, type=int,
 					help='number of directions to average on in forward mode (default: 10)')
 
+parser.add_argument('--train-samples', default=1000, type=int,
+					help='number of different sequences to generate for train dataset (default: 1000)')
+
+parser.add_argument('--min-length', default=1, type=int,
+					help='min length of sequence to copy (default: 1)')
+
+parser.add_argument('--max-length', default=10, type=int,
+					help='max length of sequence to copy (default: 10)')
+
 parser.add_argument('--rnn-type', type=str, default="LSTM", help='Type of RNN (default: LSTM)')
 
 parser.add_argument('--name', type=str, default="", help='network name')
@@ -161,6 +170,9 @@ BIDIRECTIONAL = args.bidirectional
 WEIGHT_DECAY = args.weight_decay
 DROPOUT = args.droprate
 SAVE_CORR = args.save_corr
+MIN_LENGTH = args.min_len
+MAX_LENGTH = args.max_len
+TRAIN_SAMPLES = args.train_samples
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -231,27 +243,27 @@ def count_parameters(model):
 
 print(f'\nThe model has {count_parameters(model):,} trainable parameters')
 
-train_length, val_length, test_length = 1000, 100, 100
+train_length, val_length, test_length = TRAIN_SAMPLES, TRAIN_SAMPLES // 10, TRAIN_SAMPLES // 10
 
 train_iterator = list(dataloader(num_batches=train_length,
 							batch_size=args.batch_size,
 							seq_width=VEC_DIM,
-							min_len=1,
-							max_len=10,
+							min_len=MIN_LENGTH,
+							max_len=MAX_LENGTH,
 							device=device))
 
 valid_iterator = list(dataloader(num_batches=val_length,
 							batch_size=args.batch_size,
 							seq_width=VEC_DIM,
-							min_len=1,
-							max_len=10,
+							min_len=MIN_LENGTH,
+							max_len=MAX_LENGTH,
 							device=device))
 
 test_iterator = list(dataloader(num_batches=test_length,
 						   batch_size=args.batch_size,
 						   seq_width=VEC_DIM,
-						   min_len=1,
-						   max_len=10,
+						   min_len=MIN_LENGTH,
+						   max_len=MAX_LENGTH,
 						   device=device))
 
 
