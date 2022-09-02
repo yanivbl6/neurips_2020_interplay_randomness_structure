@@ -38,8 +38,8 @@ from model_LSTM_for_copy import RNN
 parser = argparse.ArgumentParser(description='PyTorch Mage Sentiment Analysis')
 parser.add_argument('--epochs', default=500, type=int,
 					help='number of total epochs to run')
-parser.add_argument('-b', '--batch-size', default=64, type=int,
-					help='mini-batch size (default: 128)')
+parser.add_argument('-b', '--batch-size', default=256, type=int,
+					help='mini-batch size (default: 256)')
 parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
 					help='initial learning rate')
 
@@ -170,8 +170,8 @@ BIDIRECTIONAL = args.bidirectional
 WEIGHT_DECAY = args.weight_decay
 DROPOUT = args.droprate
 SAVE_CORR = args.save_corr
-MIN_LENGTH = args.min_len
-MAX_LENGTH = args.max_len
+MIN_LENGTH = args.min_length
+MAX_LENGTH = args.max_length
 TRAIN_SAMPLES = args.train_samples
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
