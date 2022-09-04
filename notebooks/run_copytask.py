@@ -127,6 +127,9 @@ parser.add_argument('--pretrained', default="", type=str,
 parser.add_argument('--ig', default=-1.0, type=float,
 					help='weight decay (default: 0)')
 
+parser.add_argument('--truncate-length', default=0, type=int,
+					help='how many backprop activations to save before detach')
+
 args = parser.parse_args()
 
 args.use_ig = args.ig > 0
@@ -148,6 +151,7 @@ BATCH_SIZE = args.batch_size
 G_REC = None
 N_EPOCHS = args.epochs
 VEC_DIM = args.vec_dim
+TRUNCATE_LENGTH = None if args.truncate_length == 0 else args.truncate_length
 
 stop_at = 0.0080  # End training at required loss
 
@@ -232,7 +236,7 @@ print("Will save model to \n  '%s'" % SAVE)
 
 # A 3-layer LSTM
 model = RNN(hidden_dim=args.hidden_dim, output_dim=VEC_DIM, n_layers=1,
-                 bidirectional=False, dropout=0)
+                 bidirectional=False, dropout=0, truncate_length=TRUNCATE_LENGTH)
 
 # Save the initial model connectivity
 state_dict_init = copy.deepcopy(model.state_dict())

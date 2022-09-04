@@ -6,8 +6,8 @@ from torch.nn.utils.rnn import PackedSequence
 
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-from torch.nn import LSTM
-# from rnn import LSTM
+# from torch.nn import LSTM
+from rnn import LSTM
 
 def normalize(x):
     eps = 1E-8
@@ -311,7 +311,7 @@ def create_new_Vs_mage_old(x_t, h_part, rnn, j, device, epsilon, with_batch=Fals
 
 class RNN(nn.Module):
     def __init__(self, hidden_dim, output_dim, n_layers,
-                 bidirectional, dropout, trunc = -1):
+                 bidirectional, dropout, trunc = -1, truncate_length=None):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
@@ -319,6 +319,7 @@ class RNN(nn.Module):
         self.bidirectional = bidirectional
         self.dropout = dropout
         self.trunc = trunc
+        self.truncate_length = truncate_length
 
 
         # Number of directions
@@ -340,7 +341,7 @@ class RNN(nn.Module):
         length, _b, _d = sequence.shape
         length = length // 2
 
-        hidden_seq, (h_t, c_t) = self.rnn(sequence)
+        hidden_seq, (h_t, c_t) = self.rnn(sequence, truncate_length=self.truncate_length)
 
         # Decode
         decoded = self.decoder(hidden_seq)

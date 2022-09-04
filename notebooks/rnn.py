@@ -29,7 +29,7 @@ class LSTM(nn.Module):
             weight.data.uniform_(-stdv, stdv)
          
     def forward(self, x, 
-                init_states=None):
+                init_states=None, truncate_length=None):
         """Assumes x is of shape (batch, sequence, feature)"""
         
         x = x.permute(1,0,2)
@@ -40,6 +40,8 @@ class LSTM(nn.Module):
         self.guess_h = []
 
         bs, seq_sz, _ = x.size()
+        if self.training and truncate_length is not None:
+            should_truncate = [r % truncate_length == 0 for r in range(1, seq_sz+1)]
         hidden_seq = []
         if init_states is None:
             h_t, c_t = (torch.zeros(bs, self.hidden_size).to(x.device), 
@@ -82,10 +84,13 @@ class LSTM(nn.Module):
             c_t = f_t * c_t + i_t * g_t
             h_t = o_t * torch.tanh(c_t)
             hidden_seq.append(h_t.unsqueeze(0))
+            if self.training and truncate_length is not None and should_truncate[t]:
+                c_t = c_t.clone().detach()
+                h_t = h_t.clone().detach()
         hidden_seq = torch.cat(hidden_seq, dim=0)
         # reshape from shape (sequence, batch, feature) to (batch, sequence, feature)
         hidden_seq = hidden_seq.transpose(0, 1).contiguous()
-        return hidden_seq, (h_t, c_t)
+        return hidden_seq.permute(1,0,2), (h_t, c_t)
 
     def pop_guess(self):
         tmp = self.guess_i
