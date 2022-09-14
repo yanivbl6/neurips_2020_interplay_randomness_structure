@@ -336,12 +336,16 @@ class RNN(nn.Module):
         # Setup dropout
         self.drop = nn.Dropout(dropout)
 
-    def forward(self, sequence):
+    def forward(self, sequence, truncate_length=None):
 
         length, _b, _d = sequence.shape
         length = length // 2
+        if truncate_length is None:
+            truncate_length = self.truncate_length
+        elif truncate_length == 0:
+            truncate_length = None
 
-        hidden_seq, (h_t, c_t) = self.rnn(sequence, truncate_length=self.truncate_length)
+        hidden_seq, (h_t, c_t) = self.rnn(sequence, truncate_length=truncate_length)
 
         # Decode
         decoded = self.decoder(hidden_seq)

@@ -36,8 +36,8 @@ class LSTM(nn.Module):
         ##seq_len = x[1]
         ##x = x[0]
 
-        self.guess_i = []
-        self.guess_h = []
+        self.guess_i = {}
+        self
 
         bs, seq_sz, _ = x.size()
         if self.training and truncate_length is not None:
@@ -54,23 +54,22 @@ class LSTM(nn.Module):
             x_t = x[:, t, :]
             # batch the computations into a single matrix multiplication
 
-            input_mul = x_t @ self.weight_ih_l0.permute(1,0) +  self.bias_ih_l0
+            input_mul = x_t @ self.weight_ih_l0.permute(1,0) + self.bias_ih_l0
             hidden_mul = h_t @ self.weight_hh_l0.permute(1,0) + self.bias_hh_l0
             
-            def hook_fn_i(grad):
-                self.guess_i.append(grad.clone())
-                return None
+            def create_hook(t):
+                def hook_fn_i(grad):
+                    self.guess_i[t] = grad.clone()
+                    return None
+                return hook_fn_i
 
-            def hook_fn_h(grad):
-                self.guess_h.append(grad.clone())
-                return None
             ##hook_fn = lambda grad: self.guess.append(grad)
             ##hook_fn = lambda grad: breakpoint()
 
-            input_mul = torch.tensor(input_mul, requires_grad = True)         
+            input_mul = torch.tensor(input_mul, requires_grad = True)
             ##hidden_mul = torch.tensor(input_mul, requires_grad = True)           
   
-            input_mul.register_hook(hook_fn_i)
+            input_mul.register_hook(create_hook(t))
             ##hidden_mul.register_hook(hook_fn_h)
 
             gates = input_mul + hidden_mul
@@ -94,7 +93,7 @@ class LSTM(nn.Module):
 
     def pop_guess(self):
         tmp = self.guess_i
-        self.guess_i = []
+        self.guess_i = {}
         return tmp
 
     def permute_hidden(self, hx, permutation):

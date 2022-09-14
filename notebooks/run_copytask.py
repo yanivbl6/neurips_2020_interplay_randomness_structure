@@ -127,6 +127,9 @@ parser.add_argument('--pretrained', default="", type=str,
 parser.add_argument('--ig', default=-1.0, type=float,
 					help='weight decay (default: 0)')
 
+parser.add_argument('--compare-bp-tbp', action='store_true', default=False,
+					help='train and get the correlation matrix between truncated BP and regular BP')
+
 parser.add_argument('--truncate-length', default=0, type=int,
 					help='how many backprop activations to save before detach')
 
@@ -146,7 +149,7 @@ N_LAYERS = args.num_layers
 BIDIRECTIONAL = args.bidirectional
 WEIGHT_DECAY = args.weight_decay
 DROPOUT = args.droprate
-SAVE_CORR = args.save_corr
+SAVE_CORR = args.compare_bp_tbp
 BATCH_SIZE = args.batch_size
 G_REC = None
 N_EPOCHS = args.epochs
@@ -173,7 +176,6 @@ N_LAYERS = args.num_layers
 BIDIRECTIONAL = args.bidirectional
 WEIGHT_DECAY = args.weight_decay
 DROPOUT = args.droprate
-SAVE_CORR = args.save_corr
 MIN_LENGTH = args.min_length
 MAX_LENGTH = args.max_length
 TRAIN_SAMPLES = args.train_samples
@@ -305,15 +307,24 @@ def accuracy(preds, y):
 	correct = (preds >= 0).float().eq(y).reshape(-1)
 	return correct.sum() / torch.FloatTensor([y.reshape(-1).shape[0]]).to(device)
 
+def compute_corr_matrix(input1, input2):
+	input1 = input1 / torch.norm(input1, dim=-1).unsqueeze(-1)
+	input2 = input2 / torch.norm(input2, dim=-1).unsqueeze(-1)
+	return torch.diag(torch.abs(input1 @ input2.permute(0, 2, 1)).mean(dim=0))
+
+def mean_different_batch(lst):
+	if not lst:
+		return None
+	ones = torch.stack([torch.nn.functional.pad(torch.ones_like(x), (0, MAX_LENGTH * 2 + 1 - x.shape[0])) for x in lst], dim=0)
+	to_mean = torch.stack([torch.nn.functional.pad(x, (0, MAX_LENGTH * 2 + 1 - x.shape[0])) for x in lst], dim=0)
+	return torch.sum(to_mean / ones.sum(dim=0).unsqueeze(0), dim=0)
 
 
 def train(model, iterator, optimizer, criterion, length):
 	epoch_loss = 0
 	epoch_acc = 0
 	model.train()
-	corr_mats = ([], [])
-	input_corr_matrices = []
-	output_corr_matrices = []
+	corr_mats = []
 	for batch in tqdm(iterator, total=length):
 		_, x, y = batch
 		optimizer.zero_grad()
@@ -334,9 +345,6 @@ def train(model, iterator, optimizer, criterion, length):
 											 random_binary=args.binary,
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 											 random_t_separately=args.random_t_separately, guess=guess, ig=args.ig)
-			if model.save_correlations:
-				input_corr_matrices.append(model.input_correlation_matrix)
-				output_corr_matrices.append(model.output_correlation_matrix)
 
 			loss = criterion(predictions, batch.label)
 			acc = accuracy(predictions, batch.label)
@@ -355,6 +363,26 @@ def train(model, iterator, optimizer, criterion, length):
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)
 
+		elif args.compare_bp_tbp:
+			predictions = model(x, truncate_length=0)
+			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
+			loss = criterion(predictions, y)
+			loss.backward()
+
+			g = model.rnn.pop_guess()
+			guess_bp = torch.stack([g[k] for k in sorted(g.keys())], dim=1)
+			optimizer.zero_grad()
+
+			predictions = model(x)
+			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
+			loss = criterion(predictions, y)
+			acc = accuracy(predictions, y)
+			loss.backward()
+			g = model.rnn.pop_guess()
+			guess_tbp = torch.stack([g[k] for k in sorted(g.keys())], dim=1)
+
+			corr_mats.append(compute_corr_matrix(guess_bp, guess_tbp))
+
 		else:
 			predictions = model(x)
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
@@ -367,7 +395,7 @@ def train(model, iterator, optimizer, criterion, length):
 		epoch_loss += loss.item()
 		epoch_acc += acc.item()
 
-	return epoch_loss / length, epoch_acc / length, corr_mats
+	return epoch_loss / length, epoch_acc / length, mean_different_batch(corr_mats)
 
 
 def evaluate(model, iterator, criterion, length):
@@ -410,10 +438,11 @@ valid_loss, valid_acc = evaluate(model, valid_iterator, criterion, val_length)
 
 print(f'Epoch: 0 | Epoch Time: N/A')
 print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc * 100:.2f}%')
+corr_mat = None
 
 for epoch in range(N_EPOCHS):
 	start_time = time.time()
-	train_loss, train_acc, corr_mats = train(model, train_iterator, optimizer, criterion, train_length)
+	train_loss, train_acc, corrs = train(model, train_iterator, optimizer, criterion, train_length)
 	valid_loss, valid_acc = evaluate(model, valid_iterator, criterion,val_length)
 	end_time = time.time()
 	epoch_mins, epoch_secs = epoch_time(start_time, end_time)
@@ -434,12 +463,13 @@ for epoch in range(N_EPOCHS):
 	if not args.no_wandb:
 		if SAVE_CORR:
 			figs = {}
-			for name, corr_mat in zip(["inputs", "outputs"], corr_mats):
-				fig, ax = plt.subplots()
-				corr_mat = corr_mat.cpu().numpy()
-				im = ax.matshow(corr_mat)
-				fig.colorbar(im)
-				figs[name] = fig
+			fig, ax = plt.subplots()
+			corr_mat = corrs.unsqueeze(0).cpu().numpy() if corr_mat is None else np.concatenate([corr_mat, corrs.unsqueeze(0).cpu().numpy()], axis=0)
+			im = ax.matshow(np.abs(corr_mat[::1 + (corr_mat.shape[0]//100)].T), vmin=0, vmax=1)
+			ax.set_ylabel("sequence step")
+			ax.set_xlabel("epoch")
+			fig.colorbar(im)
+			figs["correlation matrix"] = fig
 
 			wandb.log({"Epoch": epoch + 1,
 					   "Train Loss": train_loss,
@@ -447,8 +477,7 @@ for epoch in range(N_EPOCHS):
 					   "Train Acc": train_acc * 100,
 					   "Validation Acc": valid_acc * 100,
 					   "Learning Rate": lr_sample,
-					   f"inputs correlation matrix": figs["inputs"],
-					   f"outputs correlation matrix": figs["outputs"]})
+					   f"correlation matrix": figs["correlation matrix"]})
 		else:
 			wandb.log({"Epoch": epoch + 1,
 					   "Train Loss": train_loss,
