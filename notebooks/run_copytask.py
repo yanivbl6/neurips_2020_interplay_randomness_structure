@@ -47,9 +47,14 @@ parser.add_argument('--use-mage', action='store_true', default=False,
 					help='Use mage')
 parser.add_argument('--use-fwd', action='store_true', default=False,
 					help='Use Forward mode')
+parser.add_argument('--use-ig', action='store_true', default=False,
+					help='Use IG')
 
 parser.add_argument('-d', '--num-directions', default=10, type=int,
 					help='number of directions to average on in forward mode (default: 10)')
+
+parser.add_argument('--num-directions-orth', default=10, type=int,
+					help='number of orthogonal directions to average on in IG mode (default: 10)')
 
 parser.add_argument('--train-samples', default=1000, type=int,
 					help='number of different sequences to generate for train dataset (default: 1000)')
@@ -124,9 +129,6 @@ parser.add_argument('-t', '--trunc', default=-1, type=int,
 parser.add_argument('--pretrained', default="", type=str,
 					help='pretrained model')
 
-parser.add_argument('--ig', default=-1.0, type=float,
-					help='weight decay (default: 0)')
-
 parser.add_argument('--compare-bp-tbp', action='store_true', default=False,
 					help='train and get the correlation matrix between truncated BP and regular BP')
 
@@ -135,7 +137,6 @@ parser.add_argument('--truncate-length', default=0, type=int,
 
 args = parser.parse_args()
 
-args.use_ig = args.ig > 0
 
 if args.use_ig:
 	args.use_mage = True
@@ -330,24 +331,37 @@ def train(model, iterator, optimizer, criterion, length):
 		optimizer.zero_grad()
 
 		if args.use_ig:
-			predictions = model(batch.text)
-			loss = criterion(predictions, batch.label)
-			acc = accuracy(predictions, batch.label)
+			predictions = model(x)
+			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
+			loss = criterion(predictions, y)
+			acc = accuracy(predictions, y)
 			loss.backward()
 
 			guess = model.rnn.pop_guess()
 			optimizer.zero_grad()
 
 			for _ in range(args.num_directions):
-				predictions = model.fwd_mode(batch.text, batch.label, criterion, True, args.num_directions,
+				predictions = model.fwd_mode(x, y, criterion, args.use_mage,
+											 args.num_directions,
 											 g_with_batch=args.g_with_batch,
 											 reduce_batch=args.reduce_batch,
 											 random_binary=args.binary,
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
-											 random_t_separately=args.random_t_separately, guess=guess, ig=args.ig)
+											 random_t_separately=args.random_t_separately,
+											 guess=guess,
+											 parallel=True)
 
-			loss = criterion(predictions, batch.label)
-			acc = accuracy(predictions, batch.label)
+			for _ in range(args.num_directions_orth):
+				predictions = model.fwd_mode(x, y, criterion, args.use_mage,
+											 args.num_directions_orth,
+											 g_with_batch=args.g_with_batch,
+											 reduce_batch=args.reduce_batch,
+											 random_binary=args.binary,
+											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
+											 random_t_separately=args.random_t_separately,
+											 guess=guess,
+											 parallel=False)
+
 
 
 		elif args.use_fwd:
@@ -358,7 +372,7 @@ def train(model, iterator, optimizer, criterion, length):
 											 random_binary=args.binary,
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 											 random_t_separately=args.random_t_separately,
-											 guess=None, ig=-1.0)
+											 guess=None)
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)

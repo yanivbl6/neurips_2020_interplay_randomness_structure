@@ -109,66 +109,25 @@ def create_new_Vs_binary(rnn, j, device, epsilon):
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
-def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, alpha, t, j, device, with_batch=False):
-    W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
-    W_hi, W_hf, W_hg, W_ho = split_by_4(rnn.__getattr__(f"weight_hh_l{j}"))
-    b_ii, b_if, b_ig, b_io = split_by_4(rnn.__getattr__(f"bias_ih_l{j}"))
-    b_hi, b_hf, b_hg, b_ho = split_by_4(rnn.__getattr__(f"bias_hh_l{j}"))
 
-    get_shape = lambda w: (w.shape[0], 1) if not with_batch else (x_t.shape[0], w.shape[0], 1)
-    get_shape_bias = lambda b: (x_t.shape[0], b.shape[0]) if with_batch else b.shape
-
+def projections(z):
+    device = z.device
+    I = torch.eye(z.shape[2], device=device).unsqueeze(0)
+    gg = (torch.matmul(z.permute(0, 2, 1), z))
+    I_gg = I - gg
+    return gg, I_gg
 
 
-    z = guess[t]
-    I = torch.eye(z.shape[1], device = device)
-    Mu = torch.zeros([z.shape[1]],device = device)
+def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, parallel, j):
+    g = guess / guess.norm(dim=-1, keepdim=True)
+    gg, I_gg = projections(g.unsqueeze(1))
+    p = gg if parallel else I_gg
 
-    ##breakpoint()
-    g = torch.cat([MultivariateNormal(Mu, I + alpha* torch.matmul(z[i:i+1,:].t(),z[i:i+1,:])).sample().unsqueeze(0) for i in range(z.shape[0]) ],dim = 0).unsqueeze(2)
-
-
-
-    H = g.shape[1]//4
-    g0 = g[:,:H,:]
-    g1 = g[:,H:2*H,:]
-    g2 = g[:,2*H:3*H,:]
-    g3 = g[:,3*H:,:]
-
-    norm = torch.sqrt((x_t**2).sum(dim = 1, keepdim = True) + (h_part**2).sum(dim = 1, keepdim = True) + 1 + 1)
-
-    pw_ii = g0
-    pw_if = g1
-    pw_ig = g2
-    pw_io = g3
-    pw_hi = g0
-    pw_hf = g1
-    pw_hg = g2
-    pw_ho = g3
-
-    _vw_ii = torch.matmul(pw_ii, (x_t/norm).unsqueeze(1))
-    _vw_hi = torch.matmul(pw_hi, (h_part/norm).unsqueeze(1))
-    _vw_if = torch.matmul(pw_if, (x_t/norm).unsqueeze(1))
-    _vw_hf = torch.matmul(pw_hf, (h_part/norm).unsqueeze(1))
-    _vw_ig = torch.matmul(pw_ig, (x_t/norm).unsqueeze(1))
-    _vw_hg = torch.matmul(pw_hg, (h_part/norm).unsqueeze(1))
-    _vw_io = torch.matmul(pw_io, (x_t/norm).unsqueeze(1))
-    _vw_ho = torch.matmul(pw_ho, (h_part/norm).unsqueeze(1))
-
-    _vb_ii = torch.matmul(g0, (1.0/norm).unsqueeze(1)).squeeze(2)
-    _vb_hi = torch.matmul(g1, (1.0/norm).unsqueeze(1)).squeeze(2)
-    _vb_if = torch.matmul(g2, (1.0/norm).unsqueeze(1)).squeeze(2)
-    _vb_hf = torch.matmul(g3, (1.0/norm).unsqueeze(1)).squeeze(2)
-    _vb_ig = _vb_ii
-    _vb_hg = _vb_hi
-    _vb_io = _vb_if
-    _vb_ho = _vb_hf
-
-
-    _vw_i = (_vw_ii, _vw_if, _vw_ig, _vw_io)
-    _vw_h = (_vw_hi, _vw_hf, _vw_hg, _vw_ho)
-    _vb_i = (_vb_ii, _vb_if, _vb_ig, _vb_io)
-    _vb_h = (_vb_hi, _vb_hf, _vb_hg, _vb_ho)
+    _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, rnn, j)
+    _vw_i = torch.split(p @ torch.cat(_vw_i, dim=1), _vw_i[0].shape[1], dim=1)
+    _vw_h = torch.split(p @ torch.cat(_vw_h, dim=1), _vw_h[0].shape[1], dim=1)
+    _vb_i = torch.split((p @ torch.cat(_vb_i, dim=1).unsqueeze(-1)).squeeze(-1), _vb_i[0].shape[1], dim=1)
+    _vb_h = torch.split((p @ torch.cat(_vb_h, dim=1).unsqueeze(-1)).squeeze(-1), _vb_h[0].shape[1], dim=1)
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
@@ -355,7 +314,7 @@ class RNN(nn.Module):
 
     def fwd_mode(self, sequence, y, loss, mage=False, grad_div=1, g_with_batch=False, reduce_batch=False,
                  random_binary=False, vanilla_V_per_timestep=False,
-                 random_t_separately=False, guess=None, ig=-1):
+                 random_t_separately=False, guess=None, parallel=False):
         length, _b, _d = sequence.shape
 
         zeros = torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1),
@@ -440,8 +399,8 @@ class RNN(nn.Module):
                         _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
                     if mage:
                         if guess is not None:
-                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn, guess, ig, seq , j, device,
-                                                                            epsilon, reduce_batch)
+                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
+                                                                                  guess[seq], parallel, j)
                         elif random_t_separately:
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_random_t_separately(x_t, h_part,
                                                                                             (g0, g1, g2, g3),
@@ -449,6 +408,7 @@ class RNN(nn.Module):
                         else:
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j,
                                                                             with_batch=g_with_batch, binary=random_binary)
+
                         _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
                         _vw_hi, _vw_hf, _vw_hg, _vw_ho = _vw_h
                         _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
