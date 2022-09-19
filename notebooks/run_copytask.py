@@ -309,6 +309,11 @@ def accuracy(preds, y):
 	correct = (preds >= 0).float().eq(y).reshape(-1)
 	return correct.sum() / torch.FloatTensor([y.reshape(-1).shape[0]]).to(device)
 
+def accuracy_whole_bit(preds, y):
+	""" Categorical accuracy for multiple classes."""
+	correct = torch.all((preds >= 0).float().eq(y), dim=-1)
+	return correct.sum() / torch.FloatTensor([y.shape[0]]).to(device)
+
 def compute_corr_matrix(input1, input2):
 	input1 = input1 / torch.norm(input1, dim=-1).unsqueeze(-1)
 	input2 = input2 / torch.norm(input2, dim=-1).unsqueeze(-1)
@@ -424,6 +429,7 @@ def train(model, iterator, optimizer, criterion, length):
 def evaluate(model, iterator, criterion, length):
 	epoch_loss = 0
 	epoch_acc = 0
+	epoch_acc_whole_bit = 0
 	model.eval()
 	with torch.no_grad():
 		for batch in iterator:
@@ -432,9 +438,11 @@ def evaluate(model, iterator, criterion, length):
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)
+			acc_whole_bit = accuracy_whole_bit(predictions, y)
 			epoch_loss += loss.item()
 			epoch_acc += acc.item()
-	return epoch_loss / length, epoch_acc / length
+			epoch_acc_whole_bit += acc_whole_bit.item()
+	return epoch_loss / length, epoch_acc / length, epoch_acc_whole_bit / length
 
 
 def epoch_time(start_time, end_time):
@@ -457,7 +465,7 @@ best_valid_loss = float('inf')
 train_losses, valid_losses = np.zeros((2, N_EPOCHS))
 loss_acc = np.zeros((N_EPOCHS, 4))
 
-valid_loss, valid_acc = evaluate(model, valid_iterator, criterion, val_length)
+valid_loss, valid_acc, valid_acc_whole_bit = evaluate(model, valid_iterator, criterion, val_length)
 
 print(f'Epoch: 0 | Epoch Time: N/A')
 print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc * 100:.2f}%')
@@ -466,7 +474,7 @@ corr_mat = None
 for epoch in range(N_EPOCHS):
 	start_time = time.time()
 	train_loss, train_acc, corrs = train(model, train_iterator, optimizer, criterion, train_length)
-	valid_loss, valid_acc = evaluate(model, valid_iterator, criterion,val_length)
+	valid_loss, valid_acc, valid_acc_whole_bit = evaluate(model, valid_iterator, criterion,val_length)
 	end_time = time.time()
 	epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 	# Save losses and accuracy
@@ -507,6 +515,7 @@ for epoch in range(N_EPOCHS):
 					   "Validation Loss": valid_loss,
 					   "Train Acc": train_acc * 100,
 					   "Validation Acc": valid_acc * 100,
+					   "Validation Acc Whole Vector": valid_acc_whole_bit * 100,
 					   "Learning Rate": lr_sample})
 
 	if (epoch + 1) % show_step == 0 or epoch == 0:
