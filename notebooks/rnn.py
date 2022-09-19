@@ -37,7 +37,6 @@ class LSTM(nn.Module):
         ##x = x[0]
 
         self.guess_i = {}
-        self
 
         bs, seq_sz, _ = x.size()
         if self.training and truncate_length is not None:

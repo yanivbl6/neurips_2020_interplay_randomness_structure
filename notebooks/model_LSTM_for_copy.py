@@ -122,6 +122,7 @@ def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, parallel, j):
     g = guess / guess.norm(dim=-1, keepdim=True)
     gg, I_gg = projections(g.unsqueeze(1))
     p = gg if parallel else I_gg
+    p = p.repeat((x_t.shape[0] // p.shape[0], 1, 1))
 
     _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, rnn, j)
     _vw_i = torch.split(p @ torch.cat(_vw_i, dim=1), _vw_i[0].shape[1], dim=1)
@@ -291,6 +292,7 @@ class RNN(nn.Module):
 
         # Decoder: fully-connected
         self.decoder = nn.Linear(hidden_dim * n_directions, output_dim)
+        self.decoder.guess = None
 
         # Setup dropout
         self.drop = nn.Dropout(dropout)
@@ -306,10 +308,18 @@ class RNN(nn.Module):
 
         hidden_seq, (h_t, c_t) = self.rnn(sequence, truncate_length=truncate_length)
 
+        def hook_fn(grad):
+            self.decoder.guess = grad.clone().reshape(-1, grad.shape[-1])
+            return None
+
+
         # Decode
         decoded = self.decoder(hidden_seq)
 
-        return decoded
+        a = torch.tensor(torch.zeros_like(decoded), device=hidden_seq.device, requires_grad=True)
+        a.register_hook(hook_fn)
+
+        return decoded + a
 
 
     def fwd_mode(self, sequence, y, loss, mage=False, grad_div=1, g_with_batch=False, reduce_batch=False,
@@ -512,6 +522,13 @@ class RNN(nn.Module):
                 pw = random(self.decoder.weight, random_binary, output.shape[0] if g_with_batch else None)
                 vw = torch.matmul(pw, (output/norm).unsqueeze(1))
                 vb = torch.matmul(pw, (1.0 / norm).unsqueeze(1)).squeeze(-1).squeeze(-1)
+                if guess is not None and guess['decoder'] is not None:
+                    g = guess['decoder'] / guess['decoder'].norm(dim=-1, keepdim=True)
+                    gg, I_gg = projections(g.unsqueeze(1))
+                    p = gg if parallel else I_gg
+                    p = p.repeat((output.shape[0] // p.shape[0], 1, 1))
+                    vw = p @ vw
+                    vb = (p @ vb.unsqueeze(-1)).squeeze(-1)
             else:
                 if random_binary:
                     vw = torch.randint(0, 2, self.decoder.weight.shape, device=device, dtype=torch.float32) * 2 - 1

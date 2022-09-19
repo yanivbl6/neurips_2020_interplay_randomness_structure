@@ -38,7 +38,7 @@ from model_LSTM_for_copy import RNN
 parser = argparse.ArgumentParser(description='PyTorch Mage Sentiment Analysis')
 parser.add_argument('--epochs', default=500, type=int,
 					help='number of total epochs to run')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default=8, type=int,
 					help='mini-batch size (default: 256)')
 parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
 					help='initial learning rate')
@@ -137,6 +137,7 @@ parser.add_argument('--truncate-length', default=0, type=int,
 
 args = parser.parse_args()
 
+args.ig_decoder = True
 
 if args.use_ig:
 	args.use_mage = True
@@ -338,21 +339,27 @@ def train(model, iterator, optimizer, criterion, length):
 			loss.backward()
 
 			guess = model.rnn.pop_guess()
+			guess['decoder'] = model.decoder.guess
+			model.decoder.guess = None
 			optimizer.zero_grad()
 
-			for _ in range(args.num_directions):
-				predictions = model.fwd_mode(x, y, criterion, args.use_mage,
-											 args.num_directions,
-											 g_with_batch=args.g_with_batch,
-											 reduce_batch=args.reduce_batch,
-											 random_binary=args.binary,
-											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
-											 random_t_separately=args.random_t_separately,
-											 guess=guess,
-											 parallel=True)
+			if args.num_directions:
+				_x = x.repeat((1, args.num_directions, 1))
+				_y = y.repeat((1, args.num_directions, 1))
+				model.fwd_mode(_x, _y, criterion, args.use_mage,
+								 args.num_directions,
+								 g_with_batch=args.g_with_batch,
+								 reduce_batch=args.reduce_batch,
+								 random_binary=args.binary,
+								 vanilla_V_per_timestep=args.fwd_V_per_timestep,
+								 random_t_separately=args.random_t_separately,
+								 guess=guess,
+								 parallel=True)
 
-			for _ in range(args.num_directions_orth):
-				predictions = model.fwd_mode(x, y, criterion, args.use_mage,
+			if args.num_directions_orth:
+				_x = x.repeat((1, args.num_directions_orth, 1))
+				_y = y.repeat((1, args.num_directions_orth, 1))
+				model.fwd_mode(_x, _y, criterion, args.use_mage,
 											 args.num_directions_orth,
 											 g_with_batch=args.g_with_batch,
 											 reduce_batch=args.reduce_batch,
@@ -364,15 +371,17 @@ def train(model, iterator, optimizer, criterion, length):
 
 
 
-		elif args.use_fwd:
-			for _ in range(args.num_directions):
-				predictions = model.fwd_mode(x, y, criterion, args.use_mage, args.num_directions,
-											 g_with_batch=args.g_with_batch,
-											 reduce_batch=args.reduce_batch,
-											 random_binary=args.binary,
-											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
-											 random_t_separately=args.random_t_separately,
-											 guess=None)
+		elif args.use_fwd and args.num_directions:
+			_x = x.repeat((1, args.num_directions, 1))
+			_y = y.repeat((1, args.num_directions, 1))
+			predictions = model.fwd_mode(_x, _y, criterion, args.use_mage, args.num_directions,
+										 g_with_batch=args.g_with_batch,
+										 reduce_batch=args.reduce_batch,
+										 random_binary=args.binary,
+										 vanilla_V_per_timestep=args.fwd_V_per_timestep,
+										 random_t_separately=args.random_t_separately,
+										 guess=None)[:x.shape[0]*x.shape[1],:]
+
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)
