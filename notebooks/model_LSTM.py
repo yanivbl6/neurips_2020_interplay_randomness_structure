@@ -457,6 +457,9 @@ class RNN(nn.Module):
                  random_t_separately=False, guess=None, ig=-1):
         hx, embedding = self.batch_text_to_input(batch_text)
         x = embedding
+        x = x.repeat(1, grad_div, 1)
+        hx = tuple([h.repeat(1, grad_div, 1) for h in hx])
+        y = y.repeat(grad_div)
         device = x.device
         epsilon = 1
         V = {}
@@ -704,5 +707,5 @@ class RNN(nn.Module):
             self.decoder.weight.grad += apply_fwd_grad(dFg, vw) / grad_div
             self.decoder.bias.grad += apply_fwd_grad(dFg, vb) / grad_div
 
-        return decoded
+        return decoded[:decoded.shape[0]//grad_div]
 

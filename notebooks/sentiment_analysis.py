@@ -91,7 +91,7 @@ parser.add_argument('--random-t-separately', action='store_true', default=False,
 parser.add_argument('--fwd-V-per-timestep', action='store_true', default=False,
                     help='use a different V for each timestep')
 
-parser.add_argument('--g-with-batch', action='store_true', default=False,
+parser.add_argument('--g-with-batch', action='store_true', default=True,
                     help='add batch dimension to the gs')
 
 parser.add_argument('--gpu', default=0, type=int,
@@ -118,6 +118,9 @@ if args.use_ig:
     
 if args.use_mage:
     args.use_fwd = True
+
+if not args.g_with_batch:
+	raise NotImplementedError("this caused the bug with the direction on batch")
 
 RNN_TYPE = args.rnn_type
 EMB_DIM = args.emb_dim
@@ -548,17 +551,14 @@ def train(model, iterator, optimizer, criterion):
 
 
         elif args.use_fwd:
-            for _ in range(args.num_directions):
-                predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions,
-                                             g_with_batch=args.g_with_batch,
-                                             reduce_batch=args.reduce_batch,
-                                             random_binary=args.binary,
-                                             vanilla_V_per_timestep=args.fwd_V_per_timestep,
-                                             random_t_separately=args.random_t_separately,
-                                             guess=None, ig=-1.0)
-            if model.save_correlations:
-                input_corr_matrices.append(model.input_correlation_matrix)
-                output_corr_matrices.append(model.output_correlation_matrix)
+            predictions = model.fwd_mode(batch.text, batch.label, criterion, args.use_mage, args.num_directions,
+                                         g_with_batch=args.g_with_batch,
+                                         reduce_batch=args.reduce_batch,
+                                         random_binary=args.binary,
+                                         vanilla_V_per_timestep=args.fwd_V_per_timestep,
+                                         random_t_separately=args.random_t_separately,
+                                         guess=None, ig=-1.0)
+
             loss = criterion(predictions, batch.label)
             acc = accuracy(predictions, batch.label)
 
