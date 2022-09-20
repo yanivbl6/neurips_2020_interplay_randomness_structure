@@ -117,7 +117,7 @@ parser.add_argument('--random-t-separately', action='store_true', default=False,
 parser.add_argument('--fwd-V-per-timestep', action='store_true', default=False,
 					help='use a different V for each timestep')
 
-parser.add_argument('--g-with-batch', action='store_true', default=False,
+parser.add_argument('--g-with-batch', action='store_true', default=True,
 					help='add batch dimension to the gs')
 
 parser.add_argument('--gpu', default=0, type=int,
@@ -144,6 +144,9 @@ if args.use_ig:
 
 if args.use_mage:
 	args.use_fwd = True
+
+if not args.g_with_batch:
+	raise NotImplementedError("this caused the bug with the direction on batch")
 
 RNN_TYPE = args.rnn_type
 HIDDEN_DIM = args.hidden_dim
@@ -338,19 +341,20 @@ def train(model, iterator, optimizer, criterion, length):
 
 		if args.use_ig:
 			predictions = model(x)
-			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
-			loss = criterion(predictions, y)
-			acc = accuracy(predictions, y)
+			predictions, _y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
+			loss = criterion(predictions, _y)
+			acc = accuracy(predictions, _y)
 			loss.backward()
 
 			guess = model.rnn.pop_guess()
-			guess['decoder'] = model.decoder.guess
+			guess_decoder = model.decoder.guess.reshape(y.shape)
 			model.decoder.guess = None
-			optimizer.zero_grad()
+			# optimizer.zero_grad()
 
 			if args.num_directions:
 				_x = x.repeat((1, args.num_directions, 1))
 				_y = y.repeat((1, args.num_directions, 1))
+				guess['decoder'] = guess_decoder.repeat((1, args.num_directions, 1)).reshape(-1, VEC_DIM)
 				model.fwd_mode(_x, _y, criterion, args.use_mage,
 								 args.num_directions,
 								 g_with_batch=args.g_with_batch,
@@ -364,6 +368,7 @@ def train(model, iterator, optimizer, criterion, length):
 			if args.num_directions_orth:
 				_x = x.repeat((1, args.num_directions_orth, 1))
 				_y = y.repeat((1, args.num_directions_orth, 1))
+				guess['decoder'] = guess_decoder.repeat((1, args.num_directions_orth, 1)).reshape(-1, VEC_DIM)
 				model.fwd_mode(_x, _y, criterion, args.use_mage,
 											 args.num_directions_orth,
 											 g_with_batch=args.g_with_batch,

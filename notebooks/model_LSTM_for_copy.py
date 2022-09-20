@@ -526,7 +526,7 @@ class RNN(nn.Module):
                     g = guess['decoder'] / guess['decoder'].norm(dim=-1, keepdim=True)
                     gg, I_gg = projections(g.unsqueeze(1))
                     p = gg if parallel else I_gg
-                    p = p.repeat((output.shape[0] // p.shape[0], 1, 1))
+                    # p = p.repeat((output.shape[0] // p.shape[0], 1, 1))
                     vw = p @ vw
                     vb = (p @ vb.unsqueeze(-1)).squeeze(-1)
             else:
