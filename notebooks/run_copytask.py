@@ -310,12 +310,12 @@ criterion = nn.BCEWithLogitsLoss().to(device)
 def accuracy(preds, y):
 	""" Categorical accuracy for multiple classes."""
 	correct = (preds >= 0).float().eq(y).reshape(-1)
-	return correct.sum() / torch.FloatTensor([y.reshape(-1).shape[0]]).to(device)
+	return correct.sum().cpu() / torch.FloatTensor([y.reshape(-1).shape[0]])
 
 def accuracy_whole_bit(preds, y):
 	""" Categorical accuracy for multiple classes."""
 	correct = torch.all((preds >= 0).float().eq(y), dim=-1)
-	return correct.sum() / torch.FloatTensor([y.shape[0]]).to(device)
+	return correct.sum().cpu() / torch.FloatTensor([y.shape[0]]).to(device)
 
 def compute_corr_matrix(input1, input2):
 	input1 = input1 / torch.norm(input1, dim=-1).unsqueeze(-1)
