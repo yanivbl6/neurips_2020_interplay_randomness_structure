@@ -118,13 +118,13 @@ def projections(z):
     return gg, I_gg
 
 
-def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, parallel, j):
+def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, parallel, j, grad_div):
     g = guess / guess.norm(dim=-1, keepdim=True)
     gg, I_gg = projections(g.unsqueeze(1))
     p = gg if parallel else I_gg
     p = p.repeat((x_t.shape[0] // p.shape[0], 1, 1))
 
-    _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, rnn, j)
+    _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, rnn, j, grad_div)
     _vw_i = torch.split(p @ torch.cat(_vw_i, dim=1), _vw_i[0].shape[1], dim=1)
     _vw_h = torch.split(p @ torch.cat(_vw_h, dim=1), _vw_h[0].shape[1], dim=1)
     _vb_i = torch.split((p @ torch.cat(_vb_i, dim=1).unsqueeze(-1)).squeeze(-1), _vb_i[0].shape[1], dim=1)
@@ -177,15 +177,16 @@ def create_new_Vs_mage_random_t_separately(x_t, h_part, gs, device, binary=False
     return _vw_i, _vw_h, _vb_i, _vb_h
 
 
-def create_new_Vs_mage(x_t, h_part, rnn, j, with_batch=False, binary=False):
+def create_new_Vs_mage(x_t, h_part, rnn, j, grad_div, with_batch=False, binary=False):
     W_ii, W_if, W_ig, W_io = split_by_4(rnn.__getattr__(f"weight_ih_l{j}"))
 
-    batch = None if not with_batch else x_t.shape[0]
+    batch = grad_div if not with_batch else x_t.shape[0]
+    real_batch = x_t.shape[0] // grad_div
 
-    g0 = random(W_ii, binary, batch)
-    g1 = random(W_if, binary, batch)
-    g2 = random(W_ig, binary, batch)
-    g3 = random(W_io, binary, batch)
+    g0 = torch.repeat_interleave(random(W_ii, binary, batch), real_batch, 0)
+    g1 = torch.repeat_interleave(random(W_if, binary, batch), real_batch, 0)
+    g2 = torch.repeat_interleave(random(W_ig, binary, batch), real_batch, 0)
+    g3 = torch.repeat_interleave(random(W_io, binary, batch), real_batch, 0)
 
     norm = torch.sqrt((x_t**2).sum(dim = 1, keepdim = True) + (h_part**2).sum(dim = 1, keepdim = True) + 1 + 1)
 
@@ -206,7 +207,6 @@ def create_new_Vs_mage(x_t, h_part, rnn, j, with_batch=False, binary=False):
     _vw_hg = torch.matmul(pw_hg, (h_part/norm).unsqueeze(1))
     _vw_io = torch.matmul(pw_io, (x_t/norm).unsqueeze(1))
     _vw_ho = torch.matmul(pw_ho, (h_part/norm).unsqueeze(1))
-
     _vb_ii = torch.matmul(g0, (1.0/norm).unsqueeze(1)).squeeze(2)
     _vb_hi = torch.matmul(g1, (1.0/norm).unsqueeze(1)).squeeze(2)
     _vb_if = torch.matmul(g2, (1.0/norm).unsqueeze(1)).squeeze(2)
@@ -410,13 +410,13 @@ class RNN(nn.Module):
                     if mage:
                         if guess is not None:
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
-                                                                                  guess[seq], parallel, j)
+                                                                                  guess[seq], parallel, j, grad_div)
                         elif random_t_separately:
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_random_t_separately(x_t, h_part,
                                                                                             (g0, g1, g2, g3),
                                                                                             device, binary=random_binary)
                         else:
-                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j,
+                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage(x_t, h_part, self.rnn, j, grad_div,
                                                                             with_batch=g_with_batch, binary=random_binary)
 
                         _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
@@ -519,7 +519,9 @@ class RNN(nn.Module):
             if mage:
                 norm = torch.sqrt((output ** 2).sum(dim=-1, keepdim=True) + 1)
 
-                pw = random(self.decoder.weight, random_binary, output.shape[0] if g_with_batch else None)
+                pw = torch.repeat_interleave(random(self.decoder.weight, random_binary,
+                                                     output.shape[0] if g_with_batch else grad_div),
+                                             output.shape[0] // grad_div, 0)
                 vw = torch.matmul(pw, (output/norm).unsqueeze(1))
                 vb = torch.matmul(pw, (1.0 / norm).unsqueeze(1)).squeeze(-1).squeeze(-1)
                 if guess is not None and guess['decoder'] is not None:

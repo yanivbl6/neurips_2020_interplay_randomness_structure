@@ -117,7 +117,7 @@ parser.add_argument('--random-t-separately', action='store_true', default=False,
 parser.add_argument('--fwd-V-per-timestep', action='store_true', default=False,
 					help='use a different V for each timestep')
 
-parser.add_argument('--g-with-batch', action='store_true', default=True,
+parser.add_argument('--g-with-batch', action='store_true', default=False,
 					help='add batch dimension to the gs')
 
 parser.add_argument('--gpu', default=0, type=int,
@@ -145,8 +145,6 @@ if args.use_ig:
 if args.use_mage:
 	args.use_fwd = True
 
-if not args.g_with_batch:
-	raise NotImplementedError("this caused the bug with the direction on batch")
 
 RNN_TYPE = args.rnn_type
 HIDDEN_DIM = args.hidden_dim
@@ -256,12 +254,12 @@ print(f'\nThe model has {count_parameters(model):,} trainable parameters')
 
 train_length, val_length, test_length = TRAIN_SAMPLES, TRAIN_SAMPLES // 10, TRAIN_SAMPLES // 10
 
-train_iterator = list(dataloader(num_batches=train_length,
+get_train_iterator = lambda: dataloader(num_batches=train_length,
 							batch_size=args.batch_size,
 							seq_width=VEC_DIM,
 							min_len=MIN_LENGTH,
 							max_len=MAX_LENGTH,
-							device=device))
+							device=device)
 
 valid_iterator = list(dataloader(num_batches=val_length,
 							batch_size=args.batch_size,
@@ -390,7 +388,7 @@ def train(model, iterator, optimizer, criterion, length):
 										 random_binary=args.binary,
 										 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 										 random_t_separately=args.random_t_separately,
-										 guess=None)[:x.shape[0]*x.shape[1],:]
+										 guess=None).reshape(_y.shape)[:,:x.shape[1],:]
 
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
@@ -478,7 +476,7 @@ corr_mat = None
 
 for epoch in range(N_EPOCHS):
 	start_time = time.time()
-	train_loss, train_acc, corrs = train(model, train_iterator, optimizer, criterion, train_length)
+	train_loss, train_acc, corrs = train(model, get_train_iterator(), optimizer, criterion, train_length)
 	valid_loss, valid_acc, valid_acc_whole_bit = evaluate(model, valid_iterator, criterion,val_length)
 	end_time = time.time()
 	epoch_mins, epoch_secs = epoch_time(start_time, end_time)
