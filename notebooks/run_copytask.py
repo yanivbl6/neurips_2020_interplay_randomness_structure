@@ -343,25 +343,27 @@ def train(model, iterator, optimizer, criterion, length):
 			loss = criterion(predictions, _y)
 			acc = accuracy(predictions, _y)
 			loss.backward()
-
 			guess = model.rnn.pop_guess()
 			guess_decoder = model.decoder.guess.reshape(y.shape)
 			model.decoder.guess = None
 			# optimizer.zero_grad()
-
+			seqlen = len(x) + 1
+			N = args.num_directions + args.num_directions_orth
+			factor = np.log(N)/seqlen
+			parallels = [  np.exp(factor*(uv-seqlen))    for uv in range(seqlen)]
 			if args.num_directions:
 				_x = x.repeat((1, args.num_directions, 1))
 				_y = y.repeat((1, args.num_directions, 1))
 				guess['decoder'] = guess_decoder.repeat((1, args.num_directions, 1)).reshape(-1, VEC_DIM)
 				model.fwd_mode(_x, _y, criterion, args.use_mage,
-								 args.num_directions,
-								 g_with_batch=args.g_with_batch,
-								 reduce_batch=args.reduce_batch,
-								 random_binary=args.binary,
-								 vanilla_V_per_timestep=args.fwd_V_per_timestep,
-								 random_t_separately=args.random_t_separately,
-								 guess=guess,
-								 parallel=True)
+									args.num_directions,
+									g_with_batch=args.g_with_batch,
+									reduce_batch=args.reduce_batch,
+									random_binary=args.binary,
+									vanilla_V_per_timestep=args.fwd_V_per_timestep,
+									random_t_separately=args.random_t_separately,
+									guess=guess,
+									parallels=parallels)
 
 			if args.num_directions_orth:
 				_x = x.repeat((1, args.num_directions_orth, 1))
@@ -375,7 +377,7 @@ def train(model, iterator, optimizer, criterion, length):
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 											 random_t_separately=args.random_t_separately,
 											 guess=guess,
-											 parallel=False)
+											 parallels=parallels)
 
 
 

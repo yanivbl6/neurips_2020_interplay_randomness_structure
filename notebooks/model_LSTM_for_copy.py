@@ -5,9 +5,12 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import PackedSequence
 
 from torch.distributions.multivariate_normal import MultivariateNormal
+import numpy as np
 
 # from torch.nn import LSTM
 from rnn import LSTM
+
+import random
 
 def normalize(x):
     eps = 1E-8
@@ -324,7 +327,7 @@ class RNN(nn.Module):
 
     def fwd_mode(self, sequence, y, loss, mage=False, grad_div=1, g_with_batch=False, reduce_batch=False,
                  random_binary=False, vanilla_V_per_timestep=False,
-                 random_t_separately=False, guess=None, parallel=False):
+                 random_t_separately=False, guess=None, parallels=None):
         length, _b, _d = sequence.shape
 
         zeros = torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1),
@@ -401,6 +404,10 @@ class RNN(nn.Module):
                     x_t = x[seq]
                     h_part = h
                     dz_dW = z_grad_list[seq] if j > 0 else None
+
+
+                    parallel = (np.random.uniform() < parallels[seq])
+                    
                     if vanilla_V_per_timestep:
                         _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
                         _vw_ii, _vw_if, _vw_ig, _vw_io = _vw_i
@@ -527,6 +534,9 @@ class RNN(nn.Module):
                 if guess is not None and guess['decoder'] is not None:
                     g = guess['decoder'] / guess['decoder'].norm(dim=-1, keepdim=True)
                     gg, I_gg = projections(g.unsqueeze(1))
+
+
+                    parallel = (np.random.uniform() < parallels[seq] )
                     p = gg if parallel else I_gg
                     # p = p.repeat((output.shape[0] // p.shape[0], 1, 1))
                     vw = p @ vw
