@@ -406,7 +406,6 @@ class RNN(nn.Module):
                     dz_dW = z_grad_list[seq] if j > 0 else None
 
 
-                    parallel = (np.random.uniform() < parallels[seq])
                     
                     if vanilla_V_per_timestep:
                         _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
@@ -415,7 +414,9 @@ class RNN(nn.Module):
                         _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
                         _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
                     if mage:
+
                         if guess is not None:
+                            parallel = (np.random.uniform() < parallels[seq])
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
                                                                                   guess[seq], parallel, j, grad_div)
                         elif random_t_separately:
