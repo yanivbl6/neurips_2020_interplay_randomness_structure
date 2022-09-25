@@ -349,7 +349,7 @@ def train(model, iterator, optimizer, criterion, length):
 			guess = model.rnn.pop_guess()
 			guess_decoder = model.decoder.guess.reshape(y.shape)
 			model.decoder.guess = None
-			# optimizer.zero_grad()
+			optimizer.zero_grad()
 
 			if args.num_directions:
 				_x = x.repeat((1, args.num_directions, 1))
