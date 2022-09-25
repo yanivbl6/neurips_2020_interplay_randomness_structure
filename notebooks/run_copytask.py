@@ -421,9 +421,9 @@ def train(model, iterator, optimizer, criterion, length):
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
 			acc = accuracy(predictions, y)
-
 			loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1E-3)
+		
+		torch.nn.utils.clip_grad_norm_(model.parameters(), 1E-3)
 		optimizer.step()
 		epoch_loss += loss.item()
 		epoch_acc += acc.item()
