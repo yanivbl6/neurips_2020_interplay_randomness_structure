@@ -308,12 +308,12 @@ criterion = nn.BCEWithLogitsLoss().to(device)
 def accuracy(preds, y):
 	""" Categorical accuracy for multiple classes."""
 	correct = (preds >= 0).float().eq(y).reshape(-1)
-	return correct.sum().cpu() / torch.FloatTensor([y.reshape(-1).shape[0]])
+	return correct.sum() , torch.FloatTensor([y.reshape(-1).shape[0]])
 
 def accuracy_whole_bit(preds, y):
 	""" Categorical accuracy for multiple classes."""
 	correct = torch.all((preds >= 0).float().eq(y), dim=-1)
-	return correct.sum().cpu() / torch.FloatTensor([y.shape[0]]).to(device)
+	return correct.sum(),  torch.FloatTensor([y.shape[0]])
 
 def compute_corr_matrix(input1, input2):
 	input1 = input1 / (torch.norm(input1, dim=-1).unsqueeze(-1) + 1e-7)
@@ -335,6 +335,7 @@ def train(model, iterator, optimizer, criterion, length):
 	epoch_acc = 0
 	model.train()
 	corr_mats = []
+	total = 0
 	for batch in tqdm(iterator, total=length):
 		_, x, y = batch
 		optimizer.zero_grad()
@@ -343,16 +344,19 @@ def train(model, iterator, optimizer, criterion, length):
 			predictions = model(x)
 			predictions, _y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, _y)
-			acc = accuracy(predictions, _y)
+			acc, acc_n = accuracy(predictions, _y)
+			total = total + acc_n
 			loss.backward()
 			guess = model.rnn.pop_guess()
 			guess_decoder = model.decoder.guess.reshape(y.shape)
 			model.decoder.guess = None
+
 			# optimizer.zero_grad()
-			seqlen = len(x) + 1
-			N = args.num_directions + args.num_directions_orth
-			factor = np.log(N)/seqlen
-			parallels = [  np.exp(factor*(uv-seqlen))    for uv in range(seqlen)]
+			# seqlen = len(x) + 1
+			# N = args.num_directions + args.num_directions_orth
+			# factor = np.log(N)/seqlen
+			# parallels = [  np.exp(factor*(uv-seqlen))    for uv in range(seqlen)]
+
 			optimizer.zero_grad()
 
 			if args.num_directions:
@@ -367,7 +371,7 @@ def train(model, iterator, optimizer, criterion, length):
 									vanilla_V_per_timestep=args.fwd_V_per_timestep,
 									random_t_separately=args.random_t_separately,
 									guess=guess,
-									parallels=parallels)
+									parallel=True)
 
 			if args.num_directions_orth:
 				_x = x.repeat((1, args.num_directions_orth, 1))
@@ -381,7 +385,7 @@ def train(model, iterator, optimizer, criterion, length):
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 											 random_t_separately=args.random_t_separately,
 											 guess=guess,
-											 parallels=parallels)
+											 parallel=False)
 
 
 
@@ -398,11 +402,13 @@ def train(model, iterator, optimizer, criterion, length):
 
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
-			acc = accuracy(predictions, y)
+			acc, acc_n = accuracy(predictions, y)
+			total = total + acc_n
 
 		elif args.compare_bp_tbp:
 			predictions = model(x, truncate_length=0)
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
+			
 			loss = criterion(predictions, y)
 			loss.backward()
 
@@ -413,7 +419,9 @@ def train(model, iterator, optimizer, criterion, length):
 			predictions = model(x)
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
-			acc = accuracy(predictions, y)
+			acc, acc_n = accuracy(predictions, y)
+			total = total + acc_n
+			
 			loss.backward()
 			g = model.rnn.pop_guess()
 			guess_tbp = torch.stack([g[k] for k in sorted(g.keys())], dim=1)
@@ -424,15 +432,16 @@ def train(model, iterator, optimizer, criterion, length):
 			predictions = model(x)
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
-			acc = accuracy(predictions, y)
+			acc, acc_n = accuracy(predictions, y)
+			total = total + acc_n
 
 			loss.backward()
 
 		optimizer.step()
-		epoch_loss += loss.item()
-		epoch_acc += acc.item()
+		epoch_loss += loss
+		epoch_acc += acc
 
-	return epoch_loss / length, epoch_acc / length, mean_different_batch(corr_mats)
+	return (epoch_loss / length).item(), (epoch_acc.cpu() / total).item(), mean_different_batch(corr_mats)
 
 
 def evaluate(model, iterator, criterion, length):
@@ -440,18 +449,26 @@ def evaluate(model, iterator, criterion, length):
 	epoch_acc = 0
 	epoch_acc_whole_bit = 0
 	model.eval()
+	total = 0
+	total2 = 0
+
 	with torch.no_grad():
 		for batch in iterator:
 			_, x, y = batch
 			predictions = model(x)
 			predictions, y = predictions.reshape(-1, VEC_DIM), y.reshape(-1, VEC_DIM)
 			loss = criterion(predictions, y)
-			acc = accuracy(predictions, y)
-			acc_whole_bit = accuracy_whole_bit(predictions, y)
-			epoch_loss += loss.item()
-			epoch_acc += acc.item()
-			epoch_acc_whole_bit += acc_whole_bit.item()
-	return epoch_loss / length, epoch_acc / length, epoch_acc_whole_bit / length
+			acc, acc_n = accuracy(predictions, y)
+			total = total + acc_n
+			acc_whole_bit, acc_n2 = accuracy_whole_bit(predictions, y)
+			total2 = total2 + acc_n2
+
+			epoch_loss += loss
+			epoch_acc += acc
+			epoch_acc_whole_bit += acc_whole_bit
+
+
+	return (epoch_loss / length).item(), (epoch_acc.cpu() / total).item(), (epoch_acc_whole_bit.cpu() / total2).item()
 
 
 def epoch_time(start_time, end_time):

@@ -327,7 +327,7 @@ class RNN(nn.Module):
 
     def fwd_mode(self, sequence, y, loss, mage=False, grad_div=1, g_with_batch=False, reduce_batch=False,
                  random_binary=False, vanilla_V_per_timestep=False,
-                 random_t_separately=False, guess=None, parallels=None):
+                 random_t_separately=False, guess=None, parallel=None):
         length, _b, _d = sequence.shape
 
         zeros = torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1),
@@ -406,7 +406,6 @@ class RNN(nn.Module):
                     dz_dW = z_grad_list[seq] if j > 0 else None
 
 
-                    parallel = (np.random.uniform() < parallels[seq])
                     
                     if vanilla_V_per_timestep:
                         _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs(self.rnn, j, device, epsilon)
@@ -415,7 +414,9 @@ class RNN(nn.Module):
                         _vb_ii, _vb_if, _vb_ig, _vb_io = _vb_i
                         _vb_hi, _vb_hf, _vb_hg, _vb_ho = _vb_h
                     if mage:
+
                         if guess is not None:
+                            ##parallel = (np.random.uniform() < parallels[seq])
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
                                                                                   guess[seq], parallel, j, grad_div)
                         elif random_t_separately:
@@ -536,7 +537,7 @@ class RNN(nn.Module):
                     gg, I_gg = projections(g.unsqueeze(1))
 
 
-                    parallel = (np.random.uniform() < parallels[seq] )
+                    ##parallel = (np.random.uniform() < parallels[seq] )
                     p = gg if parallel else I_gg
                     # p = p.repeat((output.shape[0] // p.shape[0], 1, 1))
                     vw = p @ vw
