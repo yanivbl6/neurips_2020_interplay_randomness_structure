@@ -351,11 +351,10 @@ def train(model, iterator, optimizer, criterion, length):
 			guess_decoder = model.decoder.guess.reshape(y.shape)
 			model.decoder.guess = None
 
-			# optimizer.zero_grad()
-			# seqlen = len(x) + 1
-			# N = args.num_directions + args.num_directions_orth
-			# factor = np.log(N)/seqlen
-			# parallels = [  np.exp(factor*(uv-seqlen))    for uv in range(seqlen)]
+			seqlen = len(x) + 1
+			N = args.num_directions + args.num_directions_orth
+			factor = np.log(N)/seqlen
+			parallels = [  np.exp(factor*(uv-seqlen))    for uv in range(seqlen)]
 
 			optimizer.zero_grad()
 
@@ -371,7 +370,7 @@ def train(model, iterator, optimizer, criterion, length):
 									vanilla_V_per_timestep=args.fwd_V_per_timestep,
 									random_t_separately=args.random_t_separately,
 									guess=guess,
-									parallel=True)
+									parallels=parallels)
 
 			if args.num_directions_orth:
 				_x = x.repeat((1, args.num_directions_orth, 1))
@@ -385,7 +384,7 @@ def train(model, iterator, optimizer, criterion, length):
 											 vanilla_V_per_timestep=args.fwd_V_per_timestep,
 											 random_t_separately=args.random_t_separately,
 											 guess=guess,
-											 parallel=False)
+											 parallels=parallels)
 
 
 

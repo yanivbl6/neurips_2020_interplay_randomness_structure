@@ -327,7 +327,7 @@ class RNN(nn.Module):
 
     def fwd_mode(self, sequence, y, loss, mage=False, grad_div=1, g_with_batch=False, reduce_batch=False,
                  random_binary=False, vanilla_V_per_timestep=False,
-                 random_t_separately=False, guess=None, parallel=None):
+                 random_t_separately=False, guess=None, parallels=None):
         length, _b, _d = sequence.shape
 
         zeros = torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1),
@@ -341,6 +341,8 @@ class RNN(nn.Module):
         grad = 0
         h_stack = []
         c_stack = []
+        pchoice = np.zeros([len(x),self.rnn.num_layers])
+
         relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))]
         # relevant_Vs = [(j, seq) for j in range(self.rnn.num_layers) for seq in range(len(x))[-3:]]
         with torch.no_grad():
@@ -416,7 +418,8 @@ class RNN(nn.Module):
                     if mage:
 
                         if guess is not None:
-                            ##parallel = (np.random.uniform() < parallels[seq])
+                            parallel = (np.random.uniform() < parallels[seq])
+                            pchoice[seq, j] = parallel
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
                                                                                   guess[seq], parallel, j, grad_div)
                         elif random_t_separately:
@@ -488,23 +491,28 @@ class RNN(nn.Module):
                     h_grad_list.append(dh_t_dW)
                     c_t_1 = c_t
 
+
                     if (mage or vanilla_V_per_timestep) and (j, seq) in relevant_Vs:
-                        vw_ii += _vw_ii
-                        vw_hi += _vw_hi
-                        vw_if += _vw_if
-                        vw_hf += _vw_hf
-                        vw_ig += _vw_ig
-                        vw_hg += _vw_hg
-                        vw_io += _vw_io
-                        vw_ho += _vw_ho
-                        vb_ii += _vb_ii
-                        vb_hi += _vb_hi
-                        vb_if += _vb_if
-                        vb_hf += _vb_hf
-                        vb_ig += _vb_ig
-                        vb_hg += _vb_hg
-                        vb_io += _vb_io
-                        vb_ho += _vb_ho
+                        factor = 1
+                        if guess is not None:
+                            factor = parallels[seq] if  parallel else (1-parallels[seq])
+
+                        vw_ii += _vw_ii /factor
+                        vw_hi += _vw_hi /factor
+                        vw_if += _vw_if /factor
+                        vw_hf += _vw_hf /factor
+                        vw_ig += _vw_ig /factor
+                        vw_hg += _vw_hg /factor
+                        vw_io += _vw_io /factor
+                        vw_ho += _vw_ho /factor
+                        vb_ii += _vb_ii /factor
+                        vb_hi += _vb_hi /factor
+                        vb_if += _vb_if /factor
+                        vb_hf += _vb_hf /factor
+                        vb_ig += _vb_ig /factor
+                        vb_hg += _vb_hg /factor
+                        vb_io += _vb_io /factor
+                        vb_ho += _vb_ho /factor
                         # todo: add dropout as in nn.LSTM
 
                 x = torch.stack(h_list[1:], dim=0)
@@ -537,7 +545,7 @@ class RNN(nn.Module):
                     gg, I_gg = projections(g.unsqueeze(1))
 
 
-                    ##parallel = (np.random.uniform() < parallels[seq] )
+                    parallel = (np.random.uniform() < parallels[seq] )
                     p = gg if parallel else I_gg
                     # p = p.repeat((output.shape[0] // p.shape[0], 1, 1))
                     vw = p @ vw
@@ -590,8 +598,13 @@ class RNN(nn.Module):
                 self.decoder.weight.grad = torch.zeros_like(self.decoder.weight)
             if self.decoder.bias.grad is None:
                 self.decoder.bias.grad = torch.zeros_like(self.decoder.bias)
-            self.decoder.weight.grad += apply_fwd_grad(dFg, vw) / grad_div
-            self.decoder.bias.grad += apply_fwd_grad(dFg, vb) / grad_div
+
+            factor = 1
+            if guess is not None:
+                factor = parallels[seq] if  parallel else (1-parallels[seq])
+
+            self.decoder.weight.grad += apply_fwd_grad(dFg, vw) / (grad_div*factor)
+            self.decoder.bias.grad += apply_fwd_grad(dFg, vb) / (grad_div*factor)
 
         return decoded
 
