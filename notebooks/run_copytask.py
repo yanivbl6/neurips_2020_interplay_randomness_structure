@@ -135,6 +135,9 @@ parser.add_argument('--compare-bp-tbp', action='store_true', default=False,
 parser.add_argument('--truncate-length', default=0, type=int,
 					help='how many backprop activations to save before detach')
 
+parser.add_argument('--lite', action='store_true', default=False,
+					help='use lite version')
+
 args = parser.parse_args()
 
 args.ig_decoder = True
@@ -348,6 +351,17 @@ def train(model, iterator, optimizer, criterion, length):
 			total = total + acc_n
 			loss.backward()
 			guess = model.rnn.pop_guess()
+
+			if args.lite:
+				seq_len = len(x)
+				tot_guess = guess[0].clone()
+				for gidx in range(1,seq_len):
+					tot_guess = tot_guess + guess[gidx]
+				tot_guess = tot_guess/ seq_len
+				for gidx in range(1,seq_len):
+					guess[gidx] = tot_guess 
+				
+
 			guess_decoder = model.decoder.guess.reshape(y.shape)
 			model.decoder.guess = None
 
