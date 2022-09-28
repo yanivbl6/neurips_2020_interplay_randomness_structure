@@ -358,7 +358,7 @@ def train(model, iterator, optimizer, criterion, length):
 				for gidx in range(1,seq_len):
 					tot_guess = tot_guess + guess[gidx]
 				tot_guess = tot_guess/ seq_len
-				for gidx in range(1,seq_len):
+				for gidx in range(0,seq_len):
 					guess[gidx] = tot_guess 
 				
 
