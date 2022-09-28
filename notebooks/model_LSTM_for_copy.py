@@ -135,6 +135,21 @@ def create_new_Vs_mage_guess(x_t, h_part, rnn, guess, parallel, j, grad_div):
 
     return _vw_i, _vw_h, _vb_i, _vb_h
 
+def create_new_Vs_mage_guess_random_t_separately(x_t, h_part, rnn, guess, parallel, j,  gs, grad_div,  device, binary=False):
+
+    g = guess / guess.norm(dim=-1, keepdim=True)
+    gg, I_gg = projections(g.unsqueeze(1))
+    p = gg if parallel else I_gg
+    p = p.repeat((x_t.shape[0] // p.shape[0], 1, 1))
+
+    _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_random_t_separately(x_t, h_part, gs, device, binary)
+    _vw_i = torch.split(p @ torch.cat(_vw_i, dim=1), _vw_i[0].shape[1], dim=1)
+    _vw_h = torch.split(p @ torch.cat(_vw_h, dim=1), _vw_h[0].shape[1], dim=1)
+    _vb_i = torch.split((p @ torch.cat(_vb_i, dim=1).unsqueeze(-1)).squeeze(-1), _vb_i[0].shape[1], dim=1)
+    _vb_h = torch.split((p @ torch.cat(_vb_h, dim=1).unsqueeze(-1)).squeeze(-1), _vb_h[0].shape[1], dim=1)
+
+    return _vw_i, _vw_h, _vb_i, _vb_h
+
 def create_new_Vs_mage_random_t_separately(x_t, h_part, gs, device, binary=False):
     def rand():
         # keep the overall distribution gaussian
@@ -417,8 +432,14 @@ class RNN(nn.Module):
 
                         if guess is not None:
                             ##parallel = (np.random.uniform() < parallels[seq])
-                            _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
-                                                                                  guess[seq], parallel, j, grad_div)
+                            if random_t_separately:
+                                _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
+                                                                                    guess[seq], parallel, j, grad_div)
+                            else:
+                                _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess_random_t_separately(x_t, h_part,
+                                                                self.rnn, guess[seq], parallel, j, (g0, g1, g2, g3), grad_div,
+                                                                device, binary=random_binary)
+                                                                
                         elif random_t_separately:
                             _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_random_t_separately(x_t, h_part,
                                                                                             (g0, g1, g2, g3),
