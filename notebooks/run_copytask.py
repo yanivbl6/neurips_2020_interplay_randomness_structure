@@ -53,8 +53,8 @@ parser.add_argument('--use-ig', action='store_true', default=False,
 parser.add_argument('-d', '--num-directions', default=10, type=int,
 					help='number of directions to average on in forward mode (default: 10)')
 
-parser.add_argument('--num-directions-orth', default=10, type=int,
-					help='number of orthogonal directions to average on in IG mode (default: 10)')
+parser.add_argument('--num-directions-orth', default=0, type=int,
+					help='number of orthogonal directions to average on in IG mode (default: 0)')
 
 parser.add_argument('--train-samples', default=1000, type=int,
 					help='number of different sequences to generate for train dataset (default: 1000)')
@@ -383,6 +383,7 @@ def train(model, iterator, optimizer, criterion, length):
 			optimizer.zero_grad()
 
 			if args.num_directions:
+				n_directions = args.num_directions - args.num_directions_orth
 				_x = x.repeat((1, args.num_directions, 1))
 				_y = y.repeat((1, args.num_directions, 1))
 				guess['decoder'] = guess_decoder.repeat((1, args.num_directions, 1)).reshape(-1, VEC_DIM)
