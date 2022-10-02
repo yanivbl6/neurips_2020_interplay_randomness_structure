@@ -432,7 +432,7 @@ class RNN(nn.Module):
 
                         if guess is not None:
                             ##parallel = (np.random.uniform() < parallels[seq])
-                            if random_t_separately:
+                            if not random_t_separately:
                                 _vw_i, _vw_h, _vb_i, _vb_h = create_new_Vs_mage_guess(x_t, h_part, self.rnn,
                                                                                     guess[seq], parallel, j, grad_div)
                             else:

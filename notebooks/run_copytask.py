@@ -69,6 +69,15 @@ parser.add_argument('--rnn-type', type=str, default="LSTM", help='Type of RNN (d
 
 parser.add_argument('--name', type=str, default="", help='network name')
 
+
+parser.add_argument('--experiment', type=str, default="", help='for filterring')
+
+
+parser.add_argument('--seed', default=0, type=int,
+					help='seed')
+
+
+
 parser.add_argument('--scheduler', type=str, default="", help='scheduler')
 
 parser.add_argument('--vec-dim', default=8, type=int,
@@ -208,11 +217,11 @@ def set_deterministic(seed=42):
 	torch.backends.cudnn.enabled = False
 
 
-set_deterministic()
+set_deterministic(args.seed)
 
 
 # Random seed
-SEED = random.randint(0, 9999)
+SEED = args.seed
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 ###########################################################################
