@@ -10,8 +10,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
-from torchtext import data
-from torchtext import datasets
+import torchtext
+if int(torchtext.__version__.split(".")[1]) <= 8:
+    from torchtext import data
+    from torchtext import datasets
+else:
+    from torchtext.legacy import data, datasets
+
 from tqdm import tqdm
 
 import wandb
